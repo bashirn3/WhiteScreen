@@ -28,9 +28,9 @@ export async function GET(res: NextRequest) {
     // Create Kaori (Female Japanese)
     const newFirstAgent = await retellClient.agent.create({
       response_engine: { llm_id: newModel.llm_id, type: "retell-llm" },
-      responsiveness: 0.8,
+      responsiveness: 0.6,
       voice_id: "custom_voice_b1cb3cc263daeba837eacc2706",
-      voice_speed: 0.85,
+      voice_speed: 0.75,
       language: "ja-JP",
       enable_backchannel: false,
       agent_name: "Kaori",
@@ -45,9 +45,9 @@ export async function GET(res: NextRequest) {
     // Create Hideki (Male Japanese)
     const newSecondAgent = await retellClient.agent.create({
       response_engine: { llm_id: newModel.llm_id, type: "retell-llm" },
-      responsiveness: 0.8,
+      responsiveness: 0.6,
       voice_id: "custom_voice_7ea6ce44c489d0c27a241c29bf",
-      voice_speed: 0.85,
+      voice_speed: 0.75,
       language: "ja-JP",
       enable_backchannel: false,
       agent_name: "Hideki",
