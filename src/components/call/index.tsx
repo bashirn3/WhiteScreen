@@ -28,7 +28,7 @@ import { Input } from "../ui/input";
 import { useResponses } from "@/contexts/responses.context";
 import Image from "next/image";
 import axios from "axios";
-import { RetellWebClient } from "retell-client-js-sdk";
+import Vapi from "@vapi-ai/web";
 import MiniLoader from "../loaders/mini-loader/miniLoader";
 import { toast } from "sonner";
 import { isLightColor, testEmail } from "@/lib/utils";
@@ -60,7 +60,8 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { v4 as uuidv4 } from 'uuid';
 import { signIn, signOut, useSession } from 'next-auth/react';
 
-const webClient = new RetellWebClient();
+// Initialize Vapi with public key
+const vapi = new Vapi("44f6b825-6c3d-488a-aca3-d3bef0a2a3a7");
 
 type InterviewProps = {
   interview: Interview;
@@ -69,8 +70,8 @@ type InterviewProps = {
 type registerCallResponseType = {
   data: {
     registerCallResponse: {
-      call_id: string;
-      access_token: string;
+      assistant_id: string;
+      assistant_overrides: any;
     };
   };
 };
@@ -120,6 +121,26 @@ function Call({ interview }: InterviewProps) {
   const [practiceTimeLeft, setPracticeTimeLeft] = useState<number>(120); // 2 minutes in seconds
   const practiceIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // --- End Practice State ---
+  
+  // Refs to hold latest values for event listeners (prevent stale closures)
+  const isPracticingRef = useRef(isPracticing);
+  const callIdRef = useRef(callId);
+  const tabSwitchCountRef = useRef(tabSwitchCount);
+  const emailRef = useRef(email);
+  const nameRef = useRef(name);
+  const linkedinProfileRef = useRef(linkedinProfile);
+  const githubProfileRef = useRef(githubProfile);
+  
+  // Update refs when values change
+  useEffect(() => {
+    isPracticingRef.current = isPracticing;
+    callIdRef.current = callId;
+    tabSwitchCountRef.current = tabSwitchCount;
+    emailRef.current = email;
+    nameRef.current = name;
+    linkedinProfileRef.current = linkedinProfile;
+    githubProfileRef.current = githubProfile;
+  }, [isPracticing, callId, tabSwitchCount, email, name, linkedinProfile, githubProfile]);
 
   const lastUserResponseRef = useRef<HTMLDivElement | null>(null);
 
@@ -257,7 +278,7 @@ function Call({ interview }: InterviewProps) {
       !isPracticing &&
       Number(currentTimeDuration) == Number(interviewTimeDuration) * 60
     ) {
-      webClient.stopCall();
+      vapi.stop();
       setIsEnded(true);
     }
 
@@ -274,7 +295,7 @@ function Call({ interview }: InterviewProps) {
       }, 1000);
     } else if (isPracticing && isStarted && practiceTimeLeft === 0) {
       console.log("Practice time ended. Stopping call.");
-      webClient.stopCall(); // Stop call when practice timer ends
+      vapi.stop(); // Stop call when practice timer ends
       // `isEnded` will be set by the 'call_ended' event listener
       // endPractice(); // Don't call endPractice here, let call_ended handle state
     }
@@ -315,25 +336,41 @@ function Call({ interview }: InterviewProps) {
     }
   }, [session, isEditingEmail, isEditingName, interview?.is_anonymous]);
 
-  // --- Retell Event Listeners ---
+  // --- Vapi Event Listeners ---
   useEffect(() => {
-    webClient.on("call_started", () => {
-      console.log("Call started (practice:", isPracticing, ")");
+    // Remove all listeners first to prevent duplicates
+    vapi.removeAllListeners?.();
+    
+    const handleCallStart = (startData: any) => {
+      console.log("✅ CALL-START EVENT:", startData);
+      console.log("Call started (Vapi, practice:", isPracticing, ")");
       setIsCalling(true);
       // Explicitly mute mic on call start
-      webClient.mute();
-    });
+      vapi.setMuted(true);
+      console.log("🎤 Microphone muted on start");
+    };
+    
+    vapi.on("call-start", handleCallStart);
 
     const persistEnd = async () => {
       try {
         if (hasSavedRef.current) return;
-        if (isPracticing) return;
-        if (!callId) return;
+        console.log("[persistEnd] Attempting to persist end of interview");
         hasSavedRef.current = true;
-        console.log("[persistEnd] Persisting end of interview for callId:", callId);
-        // Combine LinkedIn and GitHub profiles with comma separator
-        const linkedinUrl = linkedinProfile ? `linkedin.com/in/${linkedinProfile}` : '';
-        const githubUrl = githubProfile ? `github.com/${githubProfile}` : '';
+        
+        // Read from refs to get latest values (no stale closures!)
+        if (isPracticingRef.current) {
+          console.log("[persistEnd] Practice mode - skipping save");
+          return;
+        }
+        if (!callIdRef.current) {
+          console.log("[persistEnd] No callId - skipping save");
+          return;
+        }
+        
+        console.log("[persistEnd] Persisting end for callId:", callIdRef.current);
+        const linkedinUrl = linkedinProfileRef.current ? `linkedin.com/in/${linkedinProfileRef.current}` : '';
+        const githubUrl = githubProfileRef.current ? `github.com/${githubProfileRef.current}` : '';
         const profileIds = [
           session?.user?.linkedinId,
           linkedinUrl,
@@ -343,23 +380,33 @@ function Call({ interview }: InterviewProps) {
         await ResponseService.saveResponse(
           {
             is_ended: true,
-            tab_switch_count: tabSwitchCount,
+            tab_switch_count: tabSwitchCountRef.current,
             interview_id: interview.id,
-            email,
-            name,
+            email: emailRef.current,
+            name: nameRef.current,
             profile_id: profileIds || null,
             profile_type: session?.user?.linkedinId ? 'linkedin' : null,
           },
-          callId,
+          callIdRef.current,
         );
-        console.log("[persistEnd] Persisted successfully for callId:", callId);
+        console.log("[persistEnd] ✅ Persisted successfully");
       } catch (error) {
-        console.error("[persistEnd] Failed to persist end:", error);
+        console.error("[persistEnd] ❌ Failed to persist:", error);
       }
     };
 
-    webClient.on("call_ended", () => {
-      console.log("Call ended (practice:", isPracticing, ")");
+    vapi.on("call-end", (endData) => {
+      console.log("📞 CALL-END EVENT:", endData);
+      console.log("Call ended (Vapi, practice:", isPracticing, ")");
+      console.log("Call was actually started:", isStarted);
+      console.log("End reason:", endData?.endedReason || "Unknown");
+      
+      // Only process call end if the call was actually started
+      if (!isStarted) {
+        console.warn("⚠️ Call-end event fired but call was never started. Ignoring.");
+        return;
+      }
+      
       setIsCalling(false);
       setIsEnded(true);
       // Clear practice timer if it's still running
@@ -370,46 +417,66 @@ function Call({ interview }: InterviewProps) {
       persistEnd();
     });
 
-    webClient.on("agent_start_talking", () => {
+    vapi.on("speech-start", () => {
+      console.log("Agent started talking");
       setActiveTurn("agent");
     });
 
-    webClient.on("agent_stop_talking", () => {
+    vapi.on("speech-end", () => {
+      console.log("Agent stopped talking");
       setActiveTurn("user");
     });
 
-    webClient.on("error", (error) => {
-      console.error("An error occurred:", error);
-      webClient.stopCall(); // Ensure call stops on error
+    vapi.on("error", (error) => {
+      console.error("❌ VAPI ERROR:", error);
+      console.error("Error details:", JSON.stringify(error, null, 2));
+      toast.error(`Vapi error: ${error.message || 'Unknown error'}`);
+      vapi.stop(); // Ensure call stops on error
       setIsEnded(true);
       setIsCalling(false);
     });
 
-    webClient.on("update", (update) => {
-      if (update.transcript) {
-        const transcripts: transcriptType[] = update.transcript;
-        const roleContents: { [key: string]: string } = {};
-
-        transcripts.forEach((transcript) => {
-          roleContents[transcript?.role] = transcript?.content;
-        });
-
-        setLastInterviewerResponse(roleContents["agent"]);
-        setLastUserResponse(roleContents["user"]);
+    vapi.on("message", (message) => {
+      // Handle transcript messages for real-time streaming
+      if (message.type === "transcript") {
+        // Just show the current transcript - don't accumulate
+        // Vapi manages the full conversation history internally
+        if (message.role === "assistant") {
+          setLastInterviewerResponse(message.transcript || "");
+        } else if (message.role === "user") {
+          setLastUserResponse(message.transcript || "");
+        }
+      }
+      
+      // Handle conversation updates to show full context
+      if (message.type === "conversation-update") {
+        // Extract the latest messages from conversation
+        const messages = message.conversation || [];
+        const lastAssistantMsg = messages.filter((m: any) => m.role === "assistant").pop();
+        const lastUserMsg = messages.filter((m: any) => m.role === "user").pop();
+        
+        if (lastAssistantMsg?.content) {
+          setLastInterviewerResponse(lastAssistantMsg.content);
+        }
+        if (lastUserMsg?.content) {
+          setLastUserResponse(lastUserMsg.content);
+        }
       }
     });
 
     return () => {
-      webClient.removeAllListeners();
+      // Cleanup: Remove all listeners when component unmounts
+      console.log("🧹 Cleaning up Vapi event listeners");
+      vapi.removeAllListeners?.();
     };
-    // isPracticing dependency added to ensure listeners have correct state context if needed, although current listeners don't use it directly.
-  }, [isPracticing]);
+    // Empty dependency array - only run once on mount!
+  }, []);
 
   // --- End Call / End Practice Handler ---
   const handleEndCall = async () => {
-    console.log("handleEndCall triggered (practice:", isPracticing, ")");
-    webClient.stopCall();
-    // isEnded will be set by the 'call_ended' listener
+    console.log("handleEndCall triggered (Vapi, practice:", isPracticing, ")");
+    vapi.stop();
+    // isEnded will be set by the 'call-end' listener
   };
 
   // --- Quick Microphone Access Check ---
@@ -497,9 +564,13 @@ function Call({ interview }: InterviewProps) {
       );
       console.log("[executeStartConversation] API response received:", registerCallResponse.data);
 
-      if (registerCallResponse.data.registerCallResponse.access_token) {
-        const currentCallId = registerCallResponse?.data?.registerCallResponse?.call_id;
-        console.log(`[executeStartConversation] Got access token. Call ID: ${currentCallId}`);
+      if (registerCallResponse.data.registerCallResponse.assistant_id) {
+        const assistantId = registerCallResponse.data.registerCallResponse.assistant_id;
+        const assistantOverrides = registerCallResponse.data.registerCallResponse.assistant_overrides;
+        console.log(`[executeStartConversation] Got assistant ID: ${assistantId}`);
+        
+        // Generate a unique call ID for our tracking purposes
+        const currentCallId = `vapi_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         setCallId(currentCallId);
 
         // --- Create Database Record (Real Interviews Only) ---
@@ -534,16 +605,35 @@ function Call({ interview }: InterviewProps) {
           setPracticeTimeLeft(120); // Reset practice timer
         }
 
-        // --- Start Retell Call ---
-        console.log("[executeStartConversation] Starting Retell web client call...");
-        await webClient.startCall({
-          accessToken: registerCallResponse.data.registerCallResponse.access_token,
-        });
-        console.log("[executeStartConversation] Retell call initiated. Setting isStarted = true");
-        setIsStarted(true);
+        // --- Start Vapi Call ---
+        console.log("🚀 [executeStartConversation] Starting Vapi web client call...");
+        console.log("🆔 [executeStartConversation] Assistant ID:", assistantId);
+        console.log("⚙️ [executeStartConversation] Assistant Overrides:", JSON.stringify(assistantOverrides, null, 2));
+        
+        try {
+          console.log("📞 Calling vapi.start()...");
+          console.log("🆔 Assistant ID:", assistantId);
+          console.log("🔧 Assistant Overrides:", JSON.stringify(assistantOverrides, null, 2));
+          
+          // Vapi.start() signature: start(assistantId, assistantOverrides?)
+          // assistantOverrides should be an object with assistant config overrides
+          const startResult = await vapi.start(assistantId, assistantOverrides);
+          
+          console.log("✅ vapi.start() returned:", startResult);
+          console.log("[executeStartConversation] Vapi call initiated. Setting isStarted = true");
+          setIsStarted(true);
+        } catch (vapiError: any) {
+          console.error("❌ [executeStartConversation] Vapi start error:", vapiError);
+          console.error("Error message:", vapiError?.message);
+          console.error("Error details:", vapiError);
+          toast.error(`Failed to start call: ${vapiError?.message || 'Unknown error'}`);
+          setIsPracticing(false);
+          if (practiceMode) { setIsLoadingPractice(false); } else { setIsLoadingInterview(false); }
+          return;
+        }
 
       } else {
-        console.error("[executeStartConversation] Failed to register call - API response missing access token.");
+        console.error("[executeStartConversation] Failed to register call - API response missing assistant_id.");
         toast.error("Could not initiate the call. Please try again.");
         setIsPracticing(false); // Reset practice state
       }
@@ -673,11 +763,7 @@ function Call({ interview }: InterviewProps) {
   const toggleMute = () => {
     const newMutedState = !isMuted;
     setIsMuted(newMutedState);
-    if (newMutedState) {
-      webClient.mute();
-    } else {
-      webClient.unmute();
-    }
+    vapi.setMuted(newMutedState);
     // Hide the guide after first interaction
     if (showMuteGuide) {
       setShowMuteGuide(false);

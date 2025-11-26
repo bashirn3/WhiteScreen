@@ -29,7 +29,7 @@ import { Badge } from "../ui/badge";
 import { useResponses } from "@/contexts/responses.context";
 import Image from "next/image";
 import axios from "axios";
-import { RetellWebClient } from "retell-client-js-sdk";
+import Vapi from "@vapi-ai/web";
 import MiniLoader from "../loaders/mini-loader/miniLoader";
 import { toast } from "sonner";
 import { isLightColor, testEmail } from "@/lib/utils";
@@ -60,7 +60,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { signIn, signOut, useSession } from 'next-auth/react';
 import { Edit2 } from 'lucide-react';
 
-const webClient = new RetellWebClient();
+// Initialize Vapi with public key
+const vapi = new Vapi("44f6b825-6c3d-488a-aca3-d3bef0a2a3a7");
 
 type InterviewProps = {
   interview: Interview;
@@ -69,8 +70,8 @@ type InterviewProps = {
 type registerCallResponseType = {
   data: {
     registerCallResponse: {
-      call_id: string;
-      access_token: string;
+      assistant_id: string;
+      assistant_overrides: any;
     };
   };
 };
@@ -123,9 +124,8 @@ function Call({ interview }: InterviewProps) {
   const lastUserResponseRef = useRef<HTMLDivElement | null>(null);
 
   // --- Mic Permission State ---
-  const [micPermissionStatus, setMicPermissionStatus] = useState<
-    'idle' | 'checking' | 'granted' | 'denied' | 'prompt'
-  >('idle');
+  type MicPermissionStatus = 'idle' | 'checking' | 'granted' | 'denied' | 'prompt';
+  const [micPermissionStatus, setMicPermissionStatus] = useState<MicPermissionStatus>('idle');
   // --- End Mic Permission State ---
 
   // --- Unmute Instruction State ---
@@ -181,7 +181,7 @@ function Call({ interview }: InterviewProps) {
       !isPracticing &&
       Number(currentTimeDuration) == Number(interviewTimeDuration) * 60
     ) {
-      webClient.stopCall();
+      vapi.stop();
       setIsEnded(true);
     }
 
@@ -197,10 +197,9 @@ function Call({ interview }: InterviewProps) {
         setPracticeTimeLeft((prevTime) => prevTime - 1);
       }, 1000);
     } else if (isPracticing && isStarted && practiceTimeLeft === 0) {
-      console.log("Practice time ended. Stopping call.");
-      webClient.stopCall(); // Stop call when practice timer ends
-      // `isEnded` will be set by the 'call_ended' event listener
-      // endPractice(); // Don't call endPractice here, let call_ended handle state
+      console.log("Practice time ended. Stopping call (Vapi).");
+      vapi.stop(); // Stop call when practice timer ends
+      // `isEnded` will be set by the 'call-end' event listener
     }
 
     // Cleanup interval
@@ -239,13 +238,13 @@ function Call({ interview }: InterviewProps) {
     }
   }, [session, isEditingEmail, isEditingName, interview?.is_anonymous]);
 
-  // --- Retell Event Listeners ---
+  // --- Vapi Event Listeners ---
   useEffect(() => {
-    webClient.on("call_started", () => {
-      console.log("Call started (practice:", isPracticing, ")");
+    vapi.on("call-start", () => {
+      console.log("Call started (Vapi, practice:", isPracticing, ")");
       setIsCalling(true);
       // Explicitly mute mic on call start
-      webClient.mute();
+      vapi.setMuted(true);
     });
 
     const persistEnd = async () => {
@@ -273,8 +272,8 @@ function Call({ interview }: InterviewProps) {
       }
     };
 
-    webClient.on("call_ended", () => {
-      console.log("Call ended (practice:", isPracticing, ")");
+    vapi.on("call-end", () => {
+      console.log("Call ended (Vapi, practice:", isPracticing, ")");
       setIsCalling(false);
       setIsEnded(true);
       // Clear practice timer if it's still running
@@ -285,46 +284,47 @@ function Call({ interview }: InterviewProps) {
       persistEnd();
     });
 
-    webClient.on("agent_start_talking", () => {
+    vapi.on("speech-start", () => {
+      console.log("Agent started talking");
       setActiveTurn("agent");
     });
 
-    webClient.on("agent_stop_talking", () => {
+    vapi.on("speech-end", () => {
+      console.log("Agent stopped talking");
       setActiveTurn("user");
     });
 
-    webClient.on("error", (error) => {
-      console.error("An error occurred:", error);
-      webClient.stopCall(); // Ensure call stops on error
+    vapi.on("error", (error) => {
+      console.error("An error occurred (Vapi):", error);
+      vapi.stop(); // Ensure call stops on error
       setIsEnded(true);
       setIsCalling(false);
     });
 
-    webClient.on("update", (update) => {
-      if (update.transcript) {
-        const transcripts: transcriptType[] = update.transcript;
-        const roleContents: { [key: string]: string } = {};
-
-        transcripts.forEach((transcript) => {
-          roleContents[transcript?.role] = transcript?.content;
-        });
-
-        setLastInterviewerResponse(roleContents["agent"]);
-        setLastUserResponse(roleContents["user"]);
+    vapi.on("message", (message) => {
+      console.log("Vapi message received:", message);
+      // Handle different message types
+      if (message.type === "transcript" && message.transcriptType === "final") {
+        if (message.role === "assistant") {
+          setLastInterviewerResponse(message.transcript || "");
+        } else if (message.role === "user") {
+          setLastUserResponse(message.transcript || "");
+        }
       }
     });
 
     return () => {
-      webClient.removeAllListeners();
+      // Vapi doesn't have removeAllListeners, but we can manually remove
+      vapi.removeAllListeners?.();
     };
-    // isPracticing dependency added to ensure listeners have correct state context if needed, although current listeners don't use it directly.
-  }, [isPracticing]);
+    // isPracticing dependency added to ensure listeners have correct state context if needed
+  }, [isPracticing, callId, tabSwitchCount, interview.id, email, name, session]);
 
   // --- End Call / End Practice Handler ---
   const handleEndCall = async () => {
-    console.log("handleEndCall triggered (practice:", isPracticing, ")");
-    webClient.stopCall();
-    // isEnded will be set by the 'call_ended' listener
+    console.log("handleEndCall triggered (Vapi, practice:", isPracticing, ")");
+    vapi.stop();
+    // isEnded will be set by the 'call-end' listener
   };
 
   // --- Quick Microphone Access Check ---
@@ -445,9 +445,13 @@ function Call({ interview }: InterviewProps) {
       );
       console.log("[executeStartConversation] API response received:", registerCallResponse.data);
 
-      if (registerCallResponse.data.registerCallResponse.access_token) {
-        const currentCallId = registerCallResponse?.data?.registerCallResponse?.call_id;
-        console.log(`[executeStartConversation] Got access token. Call ID: ${currentCallId}`);
+      if (registerCallResponse.data.registerCallResponse.assistant_id) {
+        const assistantId = registerCallResponse.data.registerCallResponse.assistant_id;
+        const assistantOverrides = registerCallResponse.data.registerCallResponse.assistant_overrides;
+        console.log(`[executeStartConversation] Got assistant ID: ${assistantId}`);
+        
+        // Generate a unique call ID for our tracking purposes
+        const currentCallId = `vapi_${Date.now()}_${Math.random().toString(36).substring(7)}`;
         setCallId(currentCallId);
 
         // --- Create Database Record (Real Interviews Only) ---
@@ -473,16 +477,14 @@ function Call({ interview }: InterviewProps) {
           setPracticeTimeLeft(120); // Reset practice timer
         }
 
-        // --- Start Retell Call ---
-        console.log("[executeStartConversation] Starting Retell web client call...");
-        await webClient.startCall({
-          accessToken: registerCallResponse.data.registerCallResponse.access_token,
-        });
-        console.log("[executeStartConversation] Retell call initiated. Setting isStarted = true");
+        // --- Start Vapi Call ---
+        console.log("[executeStartConversation] Starting Vapi web client call...");
+        await vapi.start(assistantId, assistantOverrides);
+        console.log("[executeStartConversation] Vapi call initiated. Setting isStarted = true");
         setIsStarted(true);
 
       } else {
-        console.error("[executeStartConversation] Failed to register call - API response missing access token.");
+        console.error("[executeStartConversation] Failed to register call - API response missing assistant_id.");
         toast.error("Could not initiate the call. Please try again.");
         setIsPracticing(false); // Reset practice state
       }
@@ -588,11 +590,7 @@ function Call({ interview }: InterviewProps) {
   const toggleMute = () => {
     const newMutedState = !isMuted;
     setIsMuted(newMutedState);
-    if (newMutedState) {
-      webClient.mute();
-    } else {
-      webClient.unmute();
-    }
+    vapi.setMuted(newMutedState);
   };
 
   // --- Mic Permission Logic ---
@@ -622,11 +620,11 @@ function Call({ interview }: InterviewProps) {
     // Check initial permission status on mount
     if (typeof navigator !== 'undefined' && navigator.permissions) {
         navigator.permissions.query({ name: 'microphone' as PermissionName }).then((permissionStatus) => {
-        setMicPermissionStatus(permissionStatus.state);
+        setMicPermissionStatus(permissionStatus.state as MicPermissionStatus);
         console.log("Initial microphone permission state:", permissionStatus.state);
 
         permissionStatus.onchange = () => {
-          setMicPermissionStatus(permissionStatus.state);
+          setMicPermissionStatus(permissionStatus.state as MicPermissionStatus);
            console.log("Microphone permission state changed to:", permissionStatus.state);
            if (permissionStatus.state === 'denied' && micPermissionStatus !== 'denied') {
               // Show toast only if changing to denied
@@ -878,30 +876,22 @@ function Call({ interview }: InterviewProps) {
                               <div className="max-w-md mx-auto">
                                 {/* Sleek Status Alert */}
                                 <div className={`p-4 rounded-xl border-2 ${
-                                  micPermissionStatus === 'granted'
-                                    ? 'border-emerald-200 bg-emerald-50/80 backdrop-blur-sm'
-                                    : micPermissionStatus === 'checking'
+                                  micPermissionStatus === 'checking'
                                     ? 'border-blue-200 bg-blue-50/80 backdrop-blur-sm'
                                     : 'border-orange-200 bg-orange-50/80 backdrop-blur-sm'
                                 }`}>
                                   <div className="flex items-center justify-center space-x-3">
-                                    {micPermissionStatus === 'granted' ? (
-                                      <CheckIcon className="h-5 w-5 text-emerald-600" />
-                                    ) : micPermissionStatus === 'checking' ? (
+                                    {micPermissionStatus === 'checking' ? (
                                       <div className="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                                     ) : (
                                       <InfoIcon className="h-5 w-5 text-orange-600" />
                                     )}
                                     <span className={`font-medium ${
-                                      micPermissionStatus === 'granted'
-                                        ? 'text-emerald-800'
-                                        : micPermissionStatus === 'checking'
+                                      micPermissionStatus === 'checking'
                                         ? 'text-blue-800'
                                         : 'text-orange-800'
                                     }`}>
-                                      {micPermissionStatus === 'granted'
-                                        ? 'Microphone Access Granted'
-                                        : micPermissionStatus === 'checking'
+                                      {micPermissionStatus === 'checking'
                                         ? 'Requesting Microphone Access...'
                                         : 'Mic Access Required'}
                                     </span>
@@ -909,35 +899,14 @@ function Call({ interview }: InterviewProps) {
                                 </div>
 
                                 {/* Action Button */}
-                                {(micPermissionStatus === 'prompt' || micPermissionStatus === 'denied' || micPermissionStatus === 'idle') && (
+                                {micPermissionStatus !== 'checking' && (
                                   <div className="mt-4 flex justify-center">
                                     <Button
                                       onClick={requestMicPermission}
-                                      disabled={micPermissionStatus === 'checking'}
-                                      className={`px-6 py-3 rounded-xl font-semibold transition-all duration-200 ${
-                                        micPermissionStatus === 'granted'
-                                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-200 border-0'
-                                          : micPermissionStatus === 'checking'
-                                          ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-200 border-0 cursor-wait'
-                                          : 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white shadow-lg shadow-orange-200 border-0'
-                                      }`}
+                                      className="px-6 py-3 rounded-xl font-semibold transition-all duration-200 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white shadow-lg shadow-orange-200 border-0"
                                     >
-                                      {micPermissionStatus === 'checking' ? (
-                                        <>
-                                          <div className="mr-2 h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                                          <span className="text-sm font-medium">Requesting...</span>
-                                        </>
-                                      ) : micPermissionStatus === 'granted' ? (
-                                        <>
-                                          <CheckIcon className="mr-2 h-4 w-4" />
-                                          <span className="text-sm font-medium">Access Granted</span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          <MicIcon className="mr-2 h-4 w-4" />
-                                          <span className="text-sm font-medium">Allow Microphone</span>
-                                        </>
-                                      )}
+                                      <MicIcon className="mr-2 h-4 w-4" />
+                                      <span className="text-sm font-medium">Allow Microphone</span>
                                     </Button>
                                   </div>
                                 )}
