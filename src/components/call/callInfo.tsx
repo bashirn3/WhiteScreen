@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Analytics, CallData } from "@/types/response";
+import { Analytics, CallData, CustomMetricScore } from "@/types/response";
 import axios from "axios";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
 import ReactAudioPlayer from "react-audio-player";
-import { DownloadIcon, TrashIcon, FileText } from "lucide-react";
+import { DownloadIcon, TrashIcon, FileText, Scale, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { ResponseService } from "@/services/responses.service";
@@ -34,6 +34,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import { CandidateStatus } from "@/lib/enum";
 import { ArrowLeft } from "lucide-react";
 import { generateIndividualCandidatePDF } from "@/lib/pdf-generator";
@@ -445,6 +451,78 @@ function CallInfo({
               </div>
             </div>
           </div>
+          
+          {/* Custom Metrics Section */}
+          {analytics?.customMetrics && analytics.customMetrics.length > 0 && (
+            <div className="bg-slate-200 rounded-2xl min-h-[120px] p-4 px-5 my-3">
+              <div className="flex items-center gap-2 my-2">
+                <Scale className="h-5 w-5 text-indigo-600" />
+                <p className="font-semibold">Custom Evaluation Metrics</p>
+                {analytics.weightedOverallScore !== undefined && (
+                  <div className="ml-auto flex items-center gap-2 bg-indigo-100 px-3 py-1 rounded-lg">
+                    <span className="text-sm font-medium text-indigo-700">Weighted Score:</span>
+                    <span className="text-xl font-bold text-indigo-600">{analytics.weightedOverallScore}</span>
+                  </div>
+                )}
+              </div>
+              
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 my-2 mt-4">
+                {analytics.customMetrics.map((metric: CustomMetricScore) => (
+                  <div
+                    key={metric.metricId}
+                    className="flex flex-col gap-2 text-sm p-4 rounded-2xl bg-slate-50"
+                  >
+                    <div className="flex items-center gap-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div className="flex items-center gap-2 cursor-help">
+                              <p className="font-semibold text-base">{metric.title}</p>
+                              <Info className="h-4 w-4 text-gray-400" />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent className="bg-gray-700 text-white max-w-xs">
+                            <p>Weight: {metric.weight}/10</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <CircularProgress
+                        classNames={{
+                          svg: "w-20 h-20 drop-shadow-md",
+                          indicator: "stroke-orange-500",
+                          track: "stroke-orange-500/10",
+                          value: "text-2xl font-semibold text-orange-500",
+                        }}
+                        value={metric.score}
+                        maxValue={10}
+                        minValue={0}
+                        strokeWidth={4}
+                        showValueLabel={true}
+                        valueLabel={
+                          <div className="flex items-baseline">
+                            {metric.score ?? 0}
+                            <span className="text-sm ml-0.5">/10</span>
+                          </div>
+                        }
+                        formatOptions={{ signDisplay: "never" }}
+                      />
+                      <div className="flex-1">
+                        <span className="text-xs text-gray-500">Weight: {metric.weight}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="text-sm">
+                      <span className="font-normal text-gray-600">Feedback: </span>
+                      <span className="font-medium">{metric.feedback || "No feedback available"}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {analytics &&
             analytics.questionSummaries &&
             analytics.questionSummaries.length > 0 && (

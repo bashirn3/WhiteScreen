@@ -166,7 +166,15 @@ function DetailsPopup({
     <>
       <div className="text-center w-[38rem]">
         <h1 className="text-xl font-semibold">Create an Interview</h1>
-        <div className="flex flex-col justify-center items-start mt-4 ml-10 mr-8">
+        
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-2 py-2">
+          <div className="w-8 h-1 bg-indigo-600 rounded" />
+          <div className="w-8 h-1 bg-gray-300 rounded" />
+          <div className="w-8 h-1 bg-gray-300 rounded" />
+        </div>
+
+        <div className="flex flex-col justify-center items-start mt-2 ml-10 mr-8">
           <div className="flex flex-row justify-center items-center">
             <h3 className="text-sm font-medium">Interview Name:</h3>
             <input

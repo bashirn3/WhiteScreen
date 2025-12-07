@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import LoaderWithLogo from "@/components/loaders/loader-with-logo/loaderWithLogo";
 import DetailsPopup from "@/components/dashboard/interview/create-popup/details";
+import CustomMetricsPopup from "@/components/dashboard/interview/create-popup/customMetrics";
 import QuestionsPopup from "@/components/dashboard/interview/create-popup/questions";
 import { InterviewBase } from "@/types/interview";
 
@@ -8,6 +9,8 @@ interface Props {
   open: boolean;
   setOpen: (open: boolean) => void;
 }
+
+type Step = "details" | "loading" | "metrics" | "questions";
 
 const CreateEmptyInterviewData = (): InterviewBase => ({
   user_id: "",
@@ -25,8 +28,7 @@ const CreateEmptyInterviewData = (): InterviewBase => ({
 });
 
 function CreateInterviewModal({ open, setOpen }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [proceed, setProceed] = useState(false);
+  const [step, setStep] = useState<Step>("details");
   const [interviewData, setInterviewData] = useState<InterviewBase>(
     CreateEmptyInterviewData(),
   );
@@ -37,18 +39,20 @@ function CreateInterviewModal({ open, setOpen }: Props) {
   const [isUploaded, setIsUploaded] = useState(false);
   const [fileName, setFileName] = useState("");
 
+  // Handle loading state transition
   useEffect(() => {
-    if (loading == true) {
-      setLoading(false);
-      setProceed(true);
+    if (step === "loading") {
+      // Short delay to show loader, then proceed to metrics
+      const timer = setTimeout(() => {
+        setStep("metrics");
+      }, 500);
+      return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interviewData]);
+  }, [step]);
 
   useEffect(() => {
     if (!open) {
-      setLoading(false);
-      setProceed(false);
+      setStep("details");
       setInterviewData(CreateEmptyInterviewData());
       setIsUploaded(false);
       setFileName("");
@@ -61,16 +65,32 @@ function CreateInterviewModal({ open, setOpen }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const handleDetailsComplete = () => {
+    setStep("loading");
+  };
+
+  const handleMetricsBack = () => {
+    setStep("details");
+  };
+
+  const handleMetricsNext = () => {
+    setStep("questions");
+  };
+
+  const handleQuestionsBack = () => {
+    setStep("metrics");
+  };
+
   return (
     <>
-      {loading ? (
-        <div className="w-[38rem] h-[35.3rem]">
+      {step === "loading" ? (
+        <div className="w-[38rem] h-[35rem]">
           <LoaderWithLogo />
         </div>
-      ) : !proceed ? (
+      ) : step === "details" ? (
         <DetailsPopup
           open={open}
-          setLoading={setLoading}
+          setLoading={handleDetailsComplete}
           interviewData={interviewData}
           setInterviewData={setInterviewData}
           isUploaded={isUploaded}
@@ -82,11 +102,18 @@ function CreateInterviewModal({ open, setOpen }: Props) {
           logoPreview={logoPreview}
           setLogoPreview={setLogoPreview}
         />
+      ) : step === "metrics" ? (
+        <CustomMetricsPopup
+          interviewData={interviewData}
+          setInterviewData={setInterviewData}
+          onBack={handleMetricsBack}
+          onNext={handleMetricsNext}
+        />
       ) : (
         <QuestionsPopup
           interviewData={interviewData}
           logoFile={logoFile}
-          setProceed={setProceed}
+          setProceed={handleQuestionsBack}
           setOpen={setOpen}
         />
       )}

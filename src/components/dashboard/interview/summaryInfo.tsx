@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import DataTable, {
   TableData,
+  CustomMetricScoreData,
 } from "@/components/dashboard/interview/dataTable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -75,16 +76,29 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
   const [tableData, setTableData] = useState<TableData[]>([]);
 
   const prepareTableData = (responses: Response[]): TableData[] => {
-    return responses.map((response) => ({
-      call_id: response.call_id,
-      name: response.name || "Anonymous",
-      overallScore: response.analytics?.overallScore || 0,
-      communicationScore: response.analytics?.communication?.score || 0,
-      callSummary:
-        response.analytics?.softSkillSummary ||
-        response.details?.call_analysis?.call_summary ||
-        "No summary available",
-    }));
+    return responses.map((response) => {
+      // Build custom metric scores as flattened keys
+      const customMetricScores: CustomMetricScoreData = {};
+      if (response.analytics?.customMetrics) {
+        response.analytics.customMetrics.forEach((metricScore: any) => {
+          customMetricScores[`metric_${metricScore.metricId}`] = metricScore.score;
+        });
+      }
+
+      return {
+        call_id: response.call_id,
+        name: response.name || "Anonymous",
+        overallScore: response.analytics?.overallScore || 0,
+        communicationScore: response.analytics?.communication?.score || 0,
+        weightedOverallScore: response.analytics?.weightedOverallScore,
+        customMetrics: response.analytics?.customMetrics,
+        callSummary:
+          response.analytics?.softSkillSummary ||
+          response.details?.call_analysis?.call_summary ||
+          "No summary available",
+        ...customMetricScores,
+      };
+    });
   };
 
   useEffect(() => {
@@ -226,7 +240,11 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
           </p>
           <div className="flex flex-col gap-1 my-2 mt-4 mx-2 p-4 rounded-2xl bg-slate-50 shadow-md">
             <ScrollArea className="h-[250px]">
-              <DataTable data={tableData} interviewId={interview?.id || ""} />
+              <DataTable 
+                data={tableData} 
+                interviewId={interview?.id || ""} 
+                customMetricDefinitions={interview?.custom_metrics || []}
+              />
             </ScrollArea>
           </div>
           <div className="flex flex-row gap-1 my-2 justify-center">

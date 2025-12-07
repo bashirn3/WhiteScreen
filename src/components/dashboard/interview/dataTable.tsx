@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useMemo } from "react";
 import {
   Table,
   TableBody,
@@ -16,30 +16,43 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, ExternalLink } from "lucide-react";
+import { ArrowUpDown, ExternalLink, Scale } from "lucide-react";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import { CustomMetric } from "@/types/interview";
+import { CustomMetricScore } from "@/types/response";
+
+// Custom metric score in table data (flattened for easier access)
+export type CustomMetricScoreData = {
+  [key: `metric_${string}`]: number | undefined;
+};
 
 export type TableData = {
   call_id: string;
   name: string;
   overallScore: number;
   communicationScore: number;
+  weightedOverallScore?: number;
   callSummary: string;
-};
+  customMetrics?: CustomMetricScore[];
+} & CustomMetricScoreData;
 
 interface DataTableProps {
   data: TableData[];
   interviewId: string;
+  customMetricDefinitions?: CustomMetric[];
 }
 
-function DataTable({ data, interviewId }: DataTableProps) {
+function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTableProps) {
+  // Determine if we should show weighted score based on custom metrics
+  const hasCustomMetrics = customMetricDefinitions.length > 0;
+  
   const [sorting, setSorting] = useState<SortingState>([
-    { id: "overallScore", desc: true },
+    { id: hasCustomMetrics ? "weightedOverallScore" : "overallScore", desc: true },
   ]);
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -71,59 +84,109 @@ function DataTable({ data, interviewId }: DataTableProps) {
     return a - b;
   };
 
-  const columns: ColumnDef<TableData>[] = [
-    {
-      accessorKey: "name",
-      header: ({ column }) => {
-        return (
-          <Button
-            variant="ghost"
-            className={`w-full justify-start font-semibold text-[15px] mb-1 ${column.getIsSorted() ? "text-indigo-600" : "text-black"}`}
-            onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-          >
-            Name
-            <ArrowUpDown className="ml-2 h-4 w-4" />
-          </Button>
-        );
-      },
-      cell: ({ row }) => (
-        <div className="flex items-center justify-left min-h-[2.6em]">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="cursor-pointer mr-2 flex-shrink-0">
-                  <ExternalLink
-                    size={16}
-                    className="text-current hover:text-indigo-600"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      window.open(
-                        `/interviews/${interviewId}?call=${row.original.call_id}`,
-                        "_blank",
-                      );
-                    }}
-                  />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent
-                side="top"
-                className="bg-gray-500 text-white font-normal"
-              >
-                View Response
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <span className="truncate">{row.getValue("name")}</span>
-        </div>
-      ),
-      sortingFn: (rowA, rowB, columnId) => {
-        const a = rowA.getValue(columnId) as string;
-        const b = rowB.getValue(columnId) as string;
+  // Build columns dynamically based on custom metrics
+  const columns = useMemo(() => {
+    const baseColumns: ColumnDef<TableData>[] = [
+      {
+        accessorKey: "name",
+        header: ({ column }) => {
+          return (
+            <Button
+              variant="ghost"
+              className={`w-full justify-start font-semibold text-[15px] mb-1 ${column.getIsSorted() ? "text-indigo-600" : "text-black"}`}
+              onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+            >
+              Name
+              <ArrowUpDown className="ml-2 h-4 w-4" />
+            </Button>
+          );
+        },
+        cell: ({ row }) => (
+          <div className="flex items-center justify-left min-h-[2.6em]">
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-pointer mr-2 flex-shrink-0">
+                    <ExternalLink
+                      size={16}
+                      className="text-current hover:text-indigo-600"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(
+                          `/interviews/${interviewId}?call=${row.original.call_id}`,
+                          "_blank",
+                        );
+                      }}
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="top"
+                  className="bg-gray-500 text-white font-normal"
+                >
+                  View Response
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            <span className="truncate">{row.getValue("name")}</span>
+          </div>
+        ),
+        sortingFn: (rowA, rowB, columnId) => {
+          const a = rowA.getValue(columnId) as string;
+          const b = rowB.getValue(columnId) as string;
 
-        return a.toLowerCase().localeCompare(b.toLowerCase());
+          return a.toLowerCase().localeCompare(b.toLowerCase());
+        },
       },
-    },
-    {
+    ];
+
+    // Add weighted overall score if custom metrics exist
+    if (hasCustomMetrics) {
+      baseColumns.push({
+        accessorKey: "weightedOverallScore",
+        header: ({ column }) => {
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={`w-full justify-start font-semibold text-[15px] mb-1 ${column.getIsSorted() ? "text-indigo-600" : "text-black"}`}
+                    onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                  >
+                    <Scale className="mr-1 h-4 w-4 text-indigo-500" />
+                    Weighted Score
+                    <ArrowUpDown className="ml-2 h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="bg-gray-700 text-white max-w-xs">
+                  <p>Overall score calculated from custom metrics based on their weights.</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        },
+        cell: ({ row }) => {
+          const score = row.getValue("weightedOverallScore") as number | undefined;
+          return (
+            <div className="min-h-[2.6em] flex items-center justify-center">
+              <span className={score !== undefined ? "font-semibold text-indigo-600" : ""}>
+                {score ?? "-"}
+              </span>
+            </div>
+          );
+        },
+        sortingFn: (rowA, rowB, columnId) => {
+          const a = rowA.getValue(columnId) as number | null;
+          const b = rowB.getValue(columnId) as number | null;
+
+          return customSortingFn(a, b);
+        },
+      });
+    }
+
+    // Add overall score column
+    baseColumns.push({
       accessorKey: "overallScore",
       header: ({ column }) => {
         return (
@@ -148,8 +211,10 @@ function DataTable({ data, interviewId }: DataTableProps) {
 
         return customSortingFn(a, b);
       },
-    },
-    {
+    });
+
+    // Add communication score
+    baseColumns.push({
       accessorKey: "communicationScore",
       header: ({ column }) => {
         return (
@@ -158,7 +223,7 @@ function DataTable({ data, interviewId }: DataTableProps) {
             className={`w-full justify-start font-semibold text-[15px] mb-1 ${column.getIsSorted() ? "text-indigo-600" : "text-black"}`}
             onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
           >
-            Communication Score
+            Communication
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         );
@@ -174,8 +239,60 @@ function DataTable({ data, interviewId }: DataTableProps) {
 
         return customSortingFn(a, b);
       },
-    },
-    {
+    });
+
+    // Add custom metric columns dynamically
+    customMetricDefinitions.forEach((metric) => {
+      const accessorKey = `metric_${metric.id}`;
+      baseColumns.push({
+        accessorKey,
+        header: ({ column }) => {
+          return (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    className={`w-full justify-start font-semibold text-[13px] mb-1 ${column.getIsSorted() ? "text-indigo-600" : "text-black"}`}
+                    onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+                  >
+                    {metric.title.length > 15 ? `${metric.title.substring(0, 15)}...` : metric.title}
+                    <span className="ml-1 text-xs text-gray-400">({metric.weight})</span>
+                    <ArrowUpDown className="ml-1 h-3 w-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent className="bg-gray-700 text-white max-w-xs">
+                  <p className="font-semibold">{metric.title}</p>
+                  <p className="text-sm mt-1">{metric.description}</p>
+                  <p className="text-xs mt-1 text-gray-300">Weight: {metric.weight}/10</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          );
+        },
+        cell: ({ row }) => {
+          const score = row.getValue(accessorKey) as number | undefined;
+          return (
+            <div className="min-h-[2.6em] flex items-center justify-center">
+              {score !== undefined ? (
+                <span className="text-sm">{score}/10</span>
+              ) : (
+                <span className="text-gray-400 text-sm">-</span>
+              )}
+            </div>
+          );
+        },
+        sortingFn: (rowA, rowB, columnId) => {
+          const a = rowA.getValue(columnId) as number | null;
+          const b = rowB.getValue(columnId) as number | null;
+
+          return customSortingFn(a, b);
+        },
+      });
+    });
+
+    // Add summary column at the end
+    baseColumns.push({
       accessorKey: "callSummary",
       header: () => (
         <div className="w-full justify-start font-semibold text-[15px] mb-1 text-black">
@@ -202,8 +319,10 @@ function DataTable({ data, interviewId }: DataTableProps) {
           </div>
         );
       },
-    },
-  ];
+    });
+
+    return baseColumns;
+  }, [customMetricDefinitions, hasCustomMetrics, hoveredRowId, interviewId]);
 
   const table = useReactTable({
     data,
