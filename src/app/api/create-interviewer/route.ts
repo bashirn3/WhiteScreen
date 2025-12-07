@@ -52,7 +52,14 @@ export async function GET(res: NextRequest) {
 
     const newInterviewer = await InterviewerService.createInterviewer({
       agent_id: lisaAssistant.id,
-      ...INTERVIEWERS.LISA,
+      name: INTERVIEWERS.LISA.name,
+      description: INTERVIEWERS.LISA.description,
+      image: INTERVIEWERS.LISA.image,
+      audio: INTERVIEWERS.LISA.audio,
+      empathy: INTERVIEWERS.LISA.empathy,
+      exploration: INTERVIEWERS.LISA.exploration,
+      rapport: INTERVIEWERS.LISA.rapport,
+      speed: INTERVIEWERS.LISA.speed,
     });
 
     // Create Bob Assistant
@@ -90,7 +97,14 @@ export async function GET(res: NextRequest) {
 
     const newSecondInterviewer = await InterviewerService.createInterviewer({
       agent_id: bobAssistant.id,
-      ...INTERVIEWERS.BOB,
+      name: INTERVIEWERS.BOB.name,
+      description: INTERVIEWERS.BOB.description,
+      image: INTERVIEWERS.BOB.image,
+      audio: INTERVIEWERS.BOB.audio,
+      empathy: INTERVIEWERS.BOB.empathy,
+      exploration: INTERVIEWERS.BOB.exploration,
+      rapport: INTERVIEWERS.BOB.rapport,
+      speed: INTERVIEWERS.BOB.speed,
     });
 
     logger.info("Vapi assistants created successfully");
