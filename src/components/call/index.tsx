@@ -369,15 +369,19 @@ function Call({ interview }: InterviewProps) {
     });
 
     vapiClient.on("speech-start", () => {
+      console.log("🎤 SPEECH-START: Agent starting to talk");
       setActiveTurn("agent");
       // Agent starting new turn → clear user's accumulated text
+      console.log("🧹 Clearing user display. Was:", userTurnText);
       userTurnText = "";
       setLastUserResponse("");
     });
 
     vapiClient.on("speech-end", () => {
+      console.log("🛑 SPEECH-END: Agent stopped talking");
       setActiveTurn("user");
       // Agent finished turn → reset accumulator for next turn
+      console.log("🧹 Resetting assistant accumulator. Was:", assistantTurnText);
       assistantTurnText = "";
     });
 
@@ -389,6 +393,18 @@ function Call({ interview }: InterviewProps) {
     });
 
     vapiClient.on("message", (message: any) => {
+      // 🔍 DEBUG: Log all transcript messages to understand Vapi's behavior
+      if (message.type === "transcript") {
+        console.log("📝 VAPI TRANSCRIPT:", {
+          role: message.role,
+          transcriptType: message.transcriptType,
+          text: message.transcript,
+          timestamp: new Date().toISOString().split('T')[1].substring(0, 12),
+          currentAssistantText: assistantTurnText,
+          currentUserText: userTurnText,
+        });
+      }
+      
       // Process FINAL transcripts sentence-by-sentence (matches Retell's behavior)
       // Vapi sends: partial, partial, final for EACH sentence
       // We accumulate finals to show the full turn (like Retell's update event)
@@ -400,10 +416,12 @@ function Call({ interview }: InterviewProps) {
         if (message.role === "assistant") {
           // Accumulate complete sentences for assistant's turn
           assistantTurnText += (assistantTurnText ? " " : "") + transcriptText;
+          console.log("✅ UPDATED ASSISTANT DISPLAY:", assistantTurnText);
           setLastInterviewerResponse(assistantTurnText);
         } else if (message.role === "user") {
           // Accumulate complete sentences for user's turn
           userTurnText += (userTurnText ? " " : "") + transcriptText;
+          console.log("✅ UPDATED USER DISPLAY:", userTurnText);
           setLastUserResponse(userTurnText);
         }
       }
