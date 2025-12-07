@@ -498,10 +498,11 @@ function Call({ interview }: InterviewProps) {
 
       if (registerCallResponse.data.registerCallResponse.access_token) {
         const currentCallId = registerCallResponse?.data?.registerCallResponse?.call_id;
-        console.log(`[executeStartConversation] Got access token. Call ID: ${currentCallId}`);
+        console.log(`[executeStartConversation] Got temporary call ID: ${currentCallId}`);
         setCallId(currentCallId);
 
         // --- Create Database Record (Real Interviews Only) ---
+        let newResponseId = null;
         if (!practiceMode) {
           console.log("[executeStartConversation] Creating DB record...");
           // Combine LinkedIn and GitHub profiles with comma separator
@@ -513,7 +514,7 @@ function Call({ interview }: InterviewProps) {
             githubUrl
           ].filter(Boolean).join(', ');
           
-          const newResponseId = await createResponse({
+          newResponseId = await createResponse({
             interview_id: interview.id,
             call_id: currentCallId,
             email: userEmail,
@@ -535,10 +536,36 @@ function Call({ interview }: InterviewProps) {
 
         // --- Start Vapi Call ---
         console.log("[executeStartConversation] Starting Vapi web client call...");
-        await vapiClient.start(
-          registerCallResponse.data.registerCallResponse.access_token
+        
+        // access_token is actually the assistant ID
+        const assistantId = registerCallResponse.data.registerCallResponse.access_token;
+        const dynamicData = registerCallResponse.data.registerCallResponse.dynamic_data;
+        
+        console.log("[executeStartConversation] Assistant ID:", assistantId);
+        console.log("[executeStartConversation] Dynamic data:", dynamicData);
+        
+        // Start Vapi call with assistant ID and variable overrides
+        const call = await vapiClient.start(
+          assistantId, // Assistant ID
+          {
+            variableValues: dynamicData, // Pass interview data as variables
+          }
         );
-        console.log("[executeStartConversation] Vapi call initiated. Setting isStarted = true");
+        
+        console.log("[executeStartConversation] Vapi call initiated:", call);
+        
+        // Update call ID with actual call ID from Vapi
+        if (call?.id) {
+          setCallId(call.id);
+          console.log("[executeStartConversation] Updated call ID to:", call.id);
+          
+          // Update DB record with actual call ID if not practice mode
+          if (!practiceMode && newResponseId) {
+            // TODO: Update the response record with the real call ID
+            console.log("[executeStartConversation] Should update DB with real call ID:", call.id);
+          }
+        }
+        
         setIsStarted(true);
 
       } else {

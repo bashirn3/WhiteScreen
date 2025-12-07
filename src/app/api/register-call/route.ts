@@ -42,33 +42,28 @@ export async function POST(req: Request, res: Response) {
       );
     }
 
-    logger.info(`Creating Vapi web call for assistant: ${interviewer.agent_id}`);
+    logger.info(`Preparing Vapi call for assistant: ${interviewer.agent_id}`);
     
-    // Create web call with Vapi - pass dynamic interview data via assistantOverrides
-    const webCall = await vapiClient.calls.create({
-      assistantId: interviewer.agent_id,
-      
-      // Pass dynamic interview data via variable overrides
-      assistantOverrides: {
-        variableValues: {
-          name: body.dynamic_data?.name || "",
-          mins: body.dynamic_data?.mins || "",
-          objective: body.dynamic_data?.objective || "",
-          job_context: body.dynamic_data?.job_context || "",
-          questions: body.dynamic_data?.questions || "",
-        },
-      },
-    });
-
-    logger.info("Vapi web call created successfully");
+    // For Vapi web calls, the frontend vapi.start() creates the call
+    // We just need to pass the assistant ID and override data
+    // Generate a temporary call ID for tracking
+    const tempCallId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    // Log the response to debug
-    logger.info("WebCall response:", webCall);
+    logger.info("Returning assistant configuration for frontend");
 
     // Format response to match frontend expectations
+    // access_token is actually the assistant ID for Vapi web calls
     const registerCallResponse = {
-      call_id: webCall.id || webCall.callId,
-      access_token: webCall.webCallUrl || webCall.url || webCall.id,
+      call_id: tempCallId,
+      access_token: interviewer.agent_id, // Frontend will use this as assistant ID
+      // Include dynamic data for frontend to pass as assistantOverrides
+      dynamic_data: {
+        name: body.dynamic_data?.name || "",
+        mins: body.dynamic_data?.mins || "",
+        objective: body.dynamic_data?.objective || "",
+        job_context: body.dynamic_data?.job_context || "",
+        questions: body.dynamic_data?.questions || "",
+      },
     };
 
     return NextResponse.json(
