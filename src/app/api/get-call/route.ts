@@ -13,26 +13,60 @@ export const maxDuration = 59;
 
 export async function POST(req: Request, res: Response) {
   logger.info("get-call request received");
-  const body = await req.json();
+  
+  try {
+    const body = await req.json();
 
-  const callDetails: Response = await ResponseService.getResponseByCallId(
-    body.id,
-  );
-  let callResponse = callDetails.details;
-  
-  if (callDetails.is_analysed) {
-    return NextResponse.json(
-      {
-        callResponse,
-        analytics: callDetails.analytics,
-      },
-      { status: 200 },
+    if (!body.id) {
+      logger.error("Missing call ID in request");
+      return NextResponse.json(
+        { error: "Call ID is required" },
+        { status: 400 },
+      );
+    }
+
+    const callDetails: Response = await ResponseService.getResponseByCallId(
+      body.id,
     );
-  }
-  
-  // Retrieve call from Vapi
-  const vapiCall = await vapiClient.calls.get(body.id);
-  const interviewId = callDetails?.interview_id;
+    
+    if (!callDetails) {
+      logger.error(`Call not found in database: ${body.id}`);
+      return NextResponse.json(
+        { error: "Call not found in database" },
+        { status: 404 },
+      );
+    }
+    
+    let callResponse = callDetails.details;
+    
+    if (callDetails.is_analysed) {
+      return NextResponse.json(
+        {
+          callResponse,
+          analytics: callDetails.analytics,
+        },
+        { status: 200 },
+      );
+    }
+    
+    // Retrieve call from Vapi with error handling
+    let vapiCall;
+    try {
+      // Vapi SDK expects an object with 'id' property, not a raw string
+      vapiCall = await vapiClient.calls.get({ id: body.id });
+    } catch (error) {
+      logger.error(`Failed to fetch call from Vapi API: ${body.id}`, error);
+      return NextResponse.json(
+        { 
+          error: "Call not found in Vapi",
+          details: error instanceof Error ? error.message : "Unknown error",
+          callId: body.id,
+        },
+        { status: 404 },
+      );
+    }
+    
+    const interviewId = callDetails?.interview_id;
   
   // Transform Vapi response to match expected structure
   const startTime = vapiCall.startedAt ? new Date(vapiCall.startedAt).getTime() : Date.now();
@@ -106,4 +140,14 @@ export async function POST(req: Request, res: Response) {
     },
     { status: 200 },
   );
+  } catch (error) {
+    logger.error("Unexpected error in get-call:", error);
+    return NextResponse.json(
+      { 
+        error: "Internal server error",
+        details: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 },
+    );
+  }
 }

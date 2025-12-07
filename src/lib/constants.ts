@@ -65,8 +65,7 @@ export const INTERVIEWERS = {
     audio: "Lisa.wav",
     // Vapi voice configuration
     voiceProvider: "11labs",
-    voiceId: "21m00Tcm4TlvDq8ikWAM", // 11labs Chloe
-    firstMessage: "Hi! I'm Shimmer, and I'll be your interviewer today. Thanks for joining us!",
+    voiceId: "21m00Tcm4TlvDq8ikWAM", // 11labs Chloe (verified working)
   },
   BOB: {
     name: "Empathetic Echo",
@@ -80,7 +79,6 @@ export const INTERVIEWERS = {
     audio: "Bob.wav",
     // Vapi voice configuration
     voiceProvider: "11labs",
-    voiceId: "ErXwobaYiN019PkySvjV", // 11labs Brian
-    firstMessage: "Hello! I'm Echo, and I'm excited to get to know you better today.",
+    voiceId: "ErXwobaYiN019PkySvjV", // 11labs Brian (verified working)
   },
 };

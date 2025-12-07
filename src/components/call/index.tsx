@@ -311,6 +311,10 @@ function Call({ interview }: InterviewProps) {
 
   // --- Vapi Event Listeners ---
   useEffect(() => {
+    // Track accumulated text for current turn (matches Retell's turn-based display)
+    let assistantTurnText = "";
+    let userTurnText = "";
+
     vapiClient.on("call-start", () => {
       console.log("Call started (practice:", isPracticing, ")");
       setIsCalling(true);
@@ -366,10 +370,15 @@ function Call({ interview }: InterviewProps) {
 
     vapiClient.on("speech-start", () => {
       setActiveTurn("agent");
+      // Agent starting new turn → clear user's accumulated text
+      userTurnText = "";
+      setLastUserResponse("");
     });
 
     vapiClient.on("speech-end", () => {
       setActiveTurn("user");
+      // Agent finished turn → reset accumulator for next turn
+      assistantTurnText = "";
     });
 
     vapiClient.on("error", (error) => {
@@ -380,36 +389,25 @@ function Call({ interview }: InterviewProps) {
     });
 
     vapiClient.on("message", (message: any) => {
-      // Vapi sends different message types
-      if (message.type === "transcript") {
-        const transcriptText = message.transcript || message.transcriptSegment?.text || "";
+      // Process FINAL transcripts sentence-by-sentence (matches Retell's behavior)
+      // Vapi sends: partial, partial, final for EACH sentence
+      // We accumulate finals to show the full turn (like Retell's update event)
+      if (message.type === "transcript" && message.transcriptType === "final") {
+        const transcriptText = message.transcript || "";
+        
+        if (!transcriptText) return; // Skip empty messages
         
         if (message.role === "assistant") {
-          // Only update if we have a complete transcript or if it's marked as final
-          if (message.transcript || message.isFinal) {
-            setLastInterviewerResponse(transcriptText);
-          } else {
-            // For partial transcripts, accumulate them
-            setLastInterviewerResponse((prev) => {
-              // Avoid duplicates - check if this text is already at the end
-              if (prev.endsWith(transcriptText)) return prev;
-              return prev + " " + transcriptText;
-            });
-          }
+          // Accumulate complete sentences for assistant's turn
+          assistantTurnText += (assistantTurnText ? " " : "") + transcriptText;
+          setLastInterviewerResponse(assistantTurnText);
         } else if (message.role === "user") {
-          // Only update if we have a complete transcript or if it's marked as final
-          if (message.transcript || message.isFinal) {
-            setLastUserResponse(transcriptText);
-          } else {
-            // For partial transcripts, accumulate them
-            setLastUserResponse((prev) => {
-              // Avoid duplicates - check if this text is already at the end
-              if (prev.endsWith(transcriptText)) return prev;
-              return prev + " " + transcriptText;
-            });
-          }
+          // Accumulate complete sentences for user's turn
+          userTurnText += (userTurnText ? " " : "") + transcriptText;
+          setLastUserResponse(userTurnText);
         }
       }
+      // Ignore partial transcripts to prevent repetition
     });
 
     return () => {

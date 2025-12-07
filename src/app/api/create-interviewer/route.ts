@@ -16,7 +16,7 @@ export async function GET(res: NextRequest) {
     const lisaAssistant = await vapiClient.assistants.create({
       name: INTERVIEWERS.LISA.name,
       
-      // Model configuration (replaces Retell's LLM)
+      // Model configuration (matches original Retell LLM settings)
       model: {
         provider: "openai",
         model: "gpt-4o",
@@ -26,17 +26,17 @@ export async function GET(res: NextRequest) {
             content: VAPI_ASSISTANT_SYSTEM_PROMPT,
           },
         ],
-        temperature: 0.7,
+        // No temperature - let it default to 1.0 like Retell
       },
       
-      // Voice configuration (replaces Retell's voice_id)
+      // Voice configuration (using original Retell voice ID)
       voice: {
         provider: "11labs" as const,
         voiceId: INTERVIEWERS.LISA.voiceId,
       },
       
-      // First message when call starts
-      firstMessage: INTERVIEWERS.LISA.firstMessage,
+      // First message mode - let model generate greeting from system prompt
+      firstMessageMode: "assistant-speaks-first-with-model-generated-message",
       
       // Transcription settings
       transcriber: {
@@ -45,9 +45,12 @@ export async function GET(res: NextRequest) {
         language: "en",
       },
       
-      // Call behavior
+      // Call behavior (matches original Retell end_call tool)
       endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
       maxDurationSeconds: 3600,
+      
+      // Backchannel disabled (matches original Retell setting)
+      backgroundSound: "off",
     });
 
     const newInterviewer = await InterviewerService.createInterviewer({
@@ -75,7 +78,7 @@ export async function GET(res: NextRequest) {
             content: VAPI_ASSISTANT_SYSTEM_PROMPT,
           },
         ],
-        temperature: 0.7,
+        // No temperature - let it default to 1.0 like Retell
       },
       
       voice: {
@@ -83,7 +86,8 @@ export async function GET(res: NextRequest) {
         voiceId: INTERVIEWERS.BOB.voiceId,
       },
       
-      firstMessage: INTERVIEWERS.BOB.firstMessage,
+      // First message mode - let model generate greeting from system prompt
+      firstMessageMode: "assistant-speaks-first-with-model-generated-message",
       
       transcriber: {
         provider: "deepgram",
@@ -93,6 +97,9 @@ export async function GET(res: NextRequest) {
       
       endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
       maxDurationSeconds: 3600,
+      
+      // Backchannel disabled (matches original Retell setting)
+      backgroundSound: "off",
     });
 
     const newSecondInterviewer = await InterviewerService.createInterviewer({
