@@ -45,7 +45,7 @@ export async function POST(req: Request, res: Response) {
     logger.info(`Creating Vapi web call for assistant: ${interviewer.agent_id}`);
     
     // Create web call with Vapi - pass dynamic interview data via assistantOverrides
-    const webCall = await vapiClient.calls.createWeb({
+    const webCall = await vapiClient.calls.create({
       assistantId: interviewer.agent_id,
       
       // Pass dynamic interview data via variable overrides
@@ -58,20 +58,17 @@ export async function POST(req: Request, res: Response) {
           questions: body.dynamic_data?.questions || "",
         },
       },
-      
-      // Optional: Add metadata for tracking
-      metadata: {
-        is_practice: body.is_practice || false,
-        interviewer_id: String(interviewerId),
-      },
     });
 
     logger.info("Vapi web call created successfully");
+    
+    // Log the response to debug
+    logger.info("WebCall response:", webCall);
 
     // Format response to match frontend expectations
     const registerCallResponse = {
-      call_id: webCall.id,
-      access_token: webCall.webCallUrl || webCall.id,
+      call_id: webCall.id || webCall.callId,
+      access_token: webCall.webCallUrl || webCall.url || webCall.id,
     };
 
     return NextResponse.json(
