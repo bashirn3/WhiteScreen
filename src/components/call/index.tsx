@@ -382,18 +382,32 @@ function Call({ interview }: InterviewProps) {
     vapiClient.on("message", (message: any) => {
       // Vapi sends different message types
       if (message.type === "transcript") {
+        const transcriptText = message.transcript || message.transcriptSegment?.text || "";
+        
         if (message.role === "assistant") {
-          setLastInterviewerResponse(
-            message.transcript || 
-            message.transcriptSegment?.text || 
-            ""
-          );
+          // Only update if we have a complete transcript or if it's marked as final
+          if (message.transcript || message.isFinal) {
+            setLastInterviewerResponse(transcriptText);
+          } else {
+            // For partial transcripts, accumulate them
+            setLastInterviewerResponse((prev) => {
+              // Avoid duplicates - check if this text is already at the end
+              if (prev.endsWith(transcriptText)) return prev;
+              return prev + " " + transcriptText;
+            });
+          }
         } else if (message.role === "user") {
-          setLastUserResponse(
-            message.transcript || 
-            message.transcriptSegment?.text || 
-            ""
-          );
+          // Only update if we have a complete transcript or if it's marked as final
+          if (message.transcript || message.isFinal) {
+            setLastUserResponse(transcriptText);
+          } else {
+            // For partial transcripts, accumulate them
+            setLastUserResponse((prev) => {
+              // Avoid duplicates - check if this text is already at the end
+              if (prev.endsWith(transcriptText)) return prev;
+              return prev + " " + transcriptText;
+            });
+          }
         }
       }
     });
@@ -556,14 +570,28 @@ function Call({ interview }: InterviewProps) {
         
         // Update call ID with actual call ID from Vapi
         if (call?.id) {
-          setCallId(call.id);
-          console.log("[executeStartConversation] Updated call ID to:", call.id);
+          const realCallId = call.id;
+          const tempCallId = currentCallId;
+          
+          console.log("[executeStartConversation] Got real Vapi call ID:", realCallId);
+          console.log("[executeStartConversation] Replacing temp ID:", tempCallId);
           
           // Update DB record with actual call ID if not practice mode
-          if (!practiceMode && newResponseId) {
-            // TODO: Update the response record with the real call ID
-            console.log("[executeStartConversation] Should update DB with real call ID:", call.id);
+          if (!practiceMode && tempCallId) {
+            try {
+              // Update the response record: temp call_id → real call_id
+              await ResponseService.updateResponse(
+                { call_id: realCallId },
+                tempCallId
+              );
+              console.log("[executeStartConversation] ✅ Updated DB with real call ID:", realCallId);
+            } catch (error) {
+              console.error("[executeStartConversation] ❌ Failed to update DB with real call ID:", error);
+            }
           }
+          
+          // Update state with real call ID
+          setCallId(realCallId);
         }
         
         setIsStarted(true);
