@@ -28,7 +28,7 @@ import { Input } from "../ui/input";
 import { useResponses } from "@/contexts/responses.context";
 import Image from "next/image";
 import axios from "axios";
-import { RetellWebClient } from "retell-client-js-sdk";
+import Vapi from "@vapi-ai/web";
 import MiniLoader from "../loaders/mini-loader/miniLoader";
 import { toast } from "sonner";
 import { isLightColor, testEmail } from "@/lib/utils";
@@ -60,7 +60,7 @@ import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { v4 as uuidv4 } from 'uuid';
 import { signIn, signOut, useSession } from 'next-auth/react';
 
-const webClient = new RetellWebClient();
+const vapiClient = new Vapi(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || "");
 
 type InterviewProps = {
   interview: Interview;
@@ -268,9 +268,9 @@ function Call({ interview }: InterviewProps) {
       }, 1000);
     } else if (isPracticing && isStarted && practiceTimeLeft === 0) {
       console.log("Practice time ended. Stopping call.");
-      webClient.stopCall(); // Stop call when practice timer ends
-      // `isEnded` will be set by the 'call_ended' event listener
-      // endPractice(); // Don't call endPractice here, let call_ended handle state
+      vapiClient.stop(); // Stop call when practice timer ends
+      // `isEnded` will be set by the 'call-end' event listener
+      // endPractice(); // Don't call endPractice here, let call-end handle state
     }
 
     // Cleanup interval
@@ -309,13 +309,13 @@ function Call({ interview }: InterviewProps) {
     }
   }, [session, isEditingEmail, isEditingName, interview?.is_anonymous]);
 
-  // --- Retell Event Listeners ---
+  // --- Vapi Event Listeners ---
   useEffect(() => {
-    webClient.on("call_started", () => {
+    vapiClient.on("call-start", () => {
       console.log("Call started (practice:", isPracticing, ")");
       setIsCalling(true);
       // Explicitly mute mic on call start
-      webClient.mute();
+      vapiClient.setMuted(true);
     });
 
     const persistEnd = async () => {
@@ -352,7 +352,7 @@ function Call({ interview }: InterviewProps) {
       }
     };
 
-    webClient.on("call_ended", () => {
+    vapiClient.on("call-end", () => {
       console.log("Call ended (practice:", isPracticing, ")");
       setIsCalling(false);
       setIsEnded(true);
@@ -364,37 +364,42 @@ function Call({ interview }: InterviewProps) {
       persistEnd();
     });
 
-    webClient.on("agent_start_talking", () => {
+    vapiClient.on("speech-start", () => {
       setActiveTurn("agent");
     });
 
-    webClient.on("agent_stop_talking", () => {
+    vapiClient.on("speech-end", () => {
       setActiveTurn("user");
     });
 
-    webClient.on("error", (error) => {
+    vapiClient.on("error", (error) => {
       console.error("An error occurred:", error);
-      webClient.stopCall(); // Ensure call stops on error
+      vapiClient.stop(); // Ensure call stops on error
       setIsEnded(true);
       setIsCalling(false);
     });
 
-    webClient.on("update", (update) => {
-      if (update.transcript) {
-        const transcripts: transcriptType[] = update.transcript;
-        const roleContents: { [key: string]: string } = {};
-
-        transcripts.forEach((transcript) => {
-          roleContents[transcript?.role] = transcript?.content;
-        });
-
-        setLastInterviewerResponse(roleContents["agent"]);
-        setLastUserResponse(roleContents["user"]);
+    vapiClient.on("message", (message: any) => {
+      // Vapi sends different message types
+      if (message.type === "transcript") {
+        if (message.role === "assistant") {
+          setLastInterviewerResponse(
+            message.transcript || 
+            message.transcriptSegment?.text || 
+            ""
+          );
+        } else if (message.role === "user") {
+          setLastUserResponse(
+            message.transcript || 
+            message.transcriptSegment?.text || 
+            ""
+          );
+        }
       }
     });
 
     return () => {
-      webClient.removeAllListeners();
+      vapiClient.removeAllListeners();
     };
     // isPracticing dependency added to ensure listeners have correct state context if needed, although current listeners don't use it directly.
   }, [isPracticing]);
@@ -402,8 +407,8 @@ function Call({ interview }: InterviewProps) {
   // --- End Call / End Practice Handler ---
   const handleEndCall = async () => {
     console.log("handleEndCall triggered (practice:", isPracticing, ")");
-    webClient.stopCall();
-    // isEnded will be set by the 'call_ended' listener
+    vapiClient.stop();
+    // isEnded will be set by the 'call-end' listener
   };
 
   // --- Quick Microphone Access Check ---
@@ -528,12 +533,12 @@ function Call({ interview }: InterviewProps) {
           setPracticeTimeLeft(120); // Reset practice timer
         }
 
-        // --- Start Retell Call ---
-        console.log("[executeStartConversation] Starting Retell web client call...");
-        await webClient.startCall({
-          accessToken: registerCallResponse.data.registerCallResponse.access_token,
-        });
-        console.log("[executeStartConversation] Retell call initiated. Setting isStarted = true");
+        // --- Start Vapi Call ---
+        console.log("[executeStartConversation] Starting Vapi web client call...");
+        await vapiClient.start(
+          registerCallResponse.data.registerCallResponse.access_token
+        );
+        console.log("[executeStartConversation] Vapi call initiated. Setting isStarted = true");
         setIsStarted(true);
 
       } else {
@@ -667,11 +672,7 @@ function Call({ interview }: InterviewProps) {
   const toggleMute = () => {
     const newMutedState = !isMuted;
     setIsMuted(newMutedState);
-    if (newMutedState) {
-      webClient.mute();
-    } else {
-      webClient.unmute();
-    }
+    vapiClient.setMuted(newMutedState);
     // Hide the guide after first interaction
     if (showMuteGuide) {
       setShowMuteGuide(false);

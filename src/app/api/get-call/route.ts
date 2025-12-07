@@ -3,10 +3,10 @@ import { generateInterviewAnalytics } from "@/services/analytics.service";
 import { ResponseService } from "@/services/responses.service";
 import { Response } from "@/types/response";
 import { NextResponse } from "next/server";
-import Retell from "retell-sdk";
+import { VapiClient } from "@vapi-ai/server-sdk";
 
-const retell = new Retell({
-  apiKey: process.env.RETELL_API_KEY || "",
+const vapiClient = new VapiClient({
+  token: process.env.VAPI_API_KEY || "",
 });
 
 export const maxDuration = 59;
@@ -19,6 +19,7 @@ export async function POST(req: Request, res: Response) {
     body.id,
   );
   let callResponse = callDetails.details;
+  
   if (callDetails.is_analysed) {
     return NextResponse.json(
       {
@@ -28,18 +29,47 @@ export async function POST(req: Request, res: Response) {
       { status: 200 },
     );
   }
-  const callOutput = await retell.call.retrieve(body.id);
+  
+  // Retrieve call from Vapi
+  const vapiCall = await vapiClient.calls.get(body.id);
   const interviewId = callDetails?.interview_id;
-  callResponse = callOutput;
-  const duration = Math.round(
-    callResponse.end_timestamp / 1000 - callResponse.start_timestamp / 1000,
-  );
+  
+  // Transform Vapi response to match expected structure
+  const startTime = vapiCall.startedAt ? new Date(vapiCall.startedAt).getTime() : Date.now();
+  const endTime = vapiCall.endedAt ? new Date(vapiCall.endedAt).getTime() : Date.now();
+  
+  callResponse = {
+    call_id: vapiCall.id,
+    start_timestamp: startTime,
+    end_timestamp: endTime,
+    
+    // Vapi provides transcript as array of messages or as a string
+    transcript: vapiCall.transcript || 
+      (vapiCall.messages?.map((msg: any) => `${msg.role}: ${msg.content}`).join('\n')) || "",
+    
+    // Recording URLs
+    recording_url: vapiCall.recordingUrl,
+    stereo_recording_url: vapiCall.stereoRecordingUrl,
+    public_log_url: vapiCall.artifact?.transcript?.url || vapiCall.recordingUrl,
+    
+    // Call analysis from Vapi
+    call_analysis: {
+      call_summary: vapiCall.summary || vapiCall.analysis?.summary || "",
+      user_sentiment: vapiCall.analysis?.sentiment || "neutral",
+    },
+    
+    // Preserve other Vapi data
+    ...vapiCall,
+  };
+  
+  const duration = Math.round((endTime - startTime) / 1000);
 
   const payload = {
     callId: body.id,
     interviewId: interviewId,
     transcript: callResponse.transcript,
   };
+  
   const result = await generateInterviewAnalytics(payload);
 
   if (result.error) {

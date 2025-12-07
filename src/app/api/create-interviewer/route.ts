@@ -1,59 +1,99 @@
 import { logger } from "@/lib/logger";
 import { InterviewerService } from "@/services/interviewers.service";
 import { NextResponse, NextRequest } from "next/server";
-import Retell from "retell-sdk";
-import { INTERVIEWERS, RETELL_AGENT_GENERAL_PROMPT } from "@/lib/constants";
+import { VapiClient } from "@vapi-ai/server-sdk";
+import { INTERVIEWERS, VAPI_ASSISTANT_SYSTEM_PROMPT } from "@/lib/constants";
 
-const retellClient = new Retell({
-  apiKey: process.env.RETELL_API_KEY || "",
+const vapiClient = new VapiClient({
+  token: process.env.VAPI_API_KEY || "",
 });
 
 export async function GET(res: NextRequest) {
   logger.info("create-interviewer request received");
 
   try {
-    const newModel = await retellClient.llm.create({
-      model: "gpt-4o",
-      general_prompt: RETELL_AGENT_GENERAL_PROMPT,
-      general_tools: [
-        {
-          type: "end_call",
-          name: "end_call_1",
-          description:
-            "End the call if the user uses goodbye phrases such as 'bye,' 'goodbye,' or 'have a nice day.' ",
-        },
-      ],
-    });
-
-    // Create Lisa
-    const newFirstAgent = await retellClient.agent.create({
-      response_engine: { llm_id: newModel.llm_id, type: "retell-llm" },
-      responsiveness: 0.4,
-      voice_id: "11labs-Chloe",
-      enable_backchannel: false,
-      agent_name: "Lisa",
+    // Create Lisa Assistant (Vapi combines LLM + Agent into one Assistant)
+    const lisaAssistant = await vapiClient.assistants.create({
+      name: INTERVIEWERS.LISA.name,
+      
+      // Model configuration (replaces Retell's LLM)
+      model: {
+        provider: "openai",
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: VAPI_ASSISTANT_SYSTEM_PROMPT,
+          },
+        ],
+        temperature: 0.7,
+      },
+      
+      // Voice configuration (replaces Retell's voice_id)
+      voice: {
+        provider: "11labs" as const,
+        voiceId: INTERVIEWERS.LISA.voiceId,
+      },
+      
+      // First message when call starts
+      firstMessage: INTERVIEWERS.LISA.firstMessage,
+      
+      // Transcription settings
+      transcriber: {
+        provider: "deepgram",
+        model: "nova-2",
+        language: "en",
+      },
+      
+      // Call behavior
+      endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
+      maxDurationSeconds: 3600,
     });
 
     const newInterviewer = await InterviewerService.createInterviewer({
-      agent_id: newFirstAgent.agent_id,
+      agent_id: lisaAssistant.id,
       ...INTERVIEWERS.LISA,
     });
 
-    // Create Bob
-    const newSecondAgent = await retellClient.agent.create({
-      response_engine: { llm_id: newModel.llm_id, type: "retell-llm" },
-      responsiveness: 0.4,
-      voice_id: "11labs-Brian",
-      enable_backchannel: false,
-      agent_name: "Bob",
+    // Create Bob Assistant
+    const bobAssistant = await vapiClient.assistants.create({
+      name: INTERVIEWERS.BOB.name,
+      
+      model: {
+        provider: "openai",
+        model: "gpt-4o",
+        messages: [
+          {
+            role: "system",
+            content: VAPI_ASSISTANT_SYSTEM_PROMPT,
+          },
+        ],
+        temperature: 0.7,
+      },
+      
+      voice: {
+        provider: "11labs" as const,
+        voiceId: INTERVIEWERS.BOB.voiceId,
+      },
+      
+      firstMessage: INTERVIEWERS.BOB.firstMessage,
+      
+      transcriber: {
+        provider: "deepgram",
+        model: "nova-2",
+        language: "en",
+      },
+      
+      endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
+      maxDurationSeconds: 3600,
     });
 
     const newSecondInterviewer = await InterviewerService.createInterviewer({
-      agent_id: newSecondAgent.agent_id,
+      agent_id: bobAssistant.id,
       ...INTERVIEWERS.BOB,
     });
 
-    logger.info("");
+    logger.info("Vapi assistants created successfully");
 
     return NextResponse.json(
       {
@@ -63,7 +103,7 @@ export async function GET(res: NextRequest) {
       { status: 200 },
     );
   } catch (error) {
-    logger.error("Error creating interviewers:");
+    logger.error("Error creating interviewers:", error instanceof Error ? error : String(error));
 
     return NextResponse.json(
       { error: "Failed to create interviewers" },

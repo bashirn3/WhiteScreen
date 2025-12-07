@@ -1,10 +1,10 @@
 import { logger } from "@/lib/logger";
 import { InterviewerService } from "@/services/interviewers.service";
 import { NextResponse } from "next/server";
-import Retell from "retell-sdk";
+import { VapiClient } from "@vapi-ai/server-sdk";
 
-const retellClient = new Retell({
-  apiKey: process.env.RETELL_API_KEY || "",
+const vapiClient = new VapiClient({
+  token: process.env.VAPI_API_KEY || "",
 });
 
 export async function POST(req: Request, res: Response) {
@@ -37,18 +37,42 @@ export async function POST(req: Request, res: Response) {
     if (!interviewer.agent_id) {
       logger.error(`Interviewer ${interviewerId} has no agent_id`);
       return NextResponse.json(
-        { error: "Interviewer has no agent configured" },
+        { error: "Interviewer has no assistant configured" },
         { status: 500 },
       );
     }
 
-    logger.info(`Creating web call for agent: ${interviewer.agent_id}`);
-    const registerCallResponse = await retellClient.call.createWebCall({
-      agent_id: interviewer.agent_id,
-      retell_llm_dynamic_variables: body.dynamic_data,
+    logger.info(`Creating Vapi web call for assistant: ${interviewer.agent_id}`);
+    
+    // Create web call with Vapi - pass dynamic interview data via assistantOverrides
+    const webCall = await vapiClient.calls.createWeb({
+      assistantId: interviewer.agent_id,
+      
+      // Pass dynamic interview data via variable overrides
+      assistantOverrides: {
+        variableValues: {
+          name: body.dynamic_data?.name || "",
+          mins: body.dynamic_data?.mins || "",
+          objective: body.dynamic_data?.objective || "",
+          job_context: body.dynamic_data?.job_context || "",
+          questions: body.dynamic_data?.questions || "",
+        },
+      },
+      
+      // Optional: Add metadata for tracking
+      metadata: {
+        is_practice: body.is_practice || false,
+        interviewer_id: String(interviewerId),
+      },
     });
 
-    logger.info("Call registered successfully");
+    logger.info("Vapi web call created successfully");
+
+    // Format response to match frontend expectations
+    const registerCallResponse = {
+      call_id: webCall.id,
+      access_token: webCall.webCallUrl || webCall.id,
+    };
 
     return NextResponse.json(
       {
