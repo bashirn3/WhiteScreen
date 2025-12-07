@@ -15,6 +15,15 @@ export interface Response {
   tab_switch_count: number;
 }
 
+// Individual custom metric score result
+export interface CustomMetricScore {
+  metricId: string;
+  title: string;
+  score: number; // Score from 0-10
+  feedback: string;
+  weight: number; // Original weight for reference
+}
+
 export interface Analytics {
   overallScore: number;
   overallFeedback: string;
@@ -25,6 +34,10 @@ export interface Analytics {
     question: string;
     summary: string;
   }>;
+  // Custom metrics scores (when custom metrics are defined)
+  customMetrics?: CustomMetricScore[];
+  // Weighted overall score (calculated from custom metrics when available)
+  weightedOverallScore?: number;
 }
 
 export interface FeedbackData {

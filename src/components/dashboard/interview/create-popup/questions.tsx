@@ -128,10 +128,10 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
   }, [questions.length]);
 
   return (
-    <div>
+    <div className="w-[38rem]">
       <div
-        className={`text-center px-1 flex flex-col justify-top items-center w-[38rem] ${
-          interviewData.question_count > 1 ? "h-[29rem]" : ""
+        className={`text-center px-1 flex flex-col justify-top items-center ${
+          interviewData.question_count > 1 ? "h-[26rem]" : ""
         } `}
       >
         <div className="relative flex justify-center w-full">
@@ -142,11 +142,18 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
               setProceed(false);
             }}
           />
-          <h1 className="text-2xl font-semibold">Create Interview</h1>
+          <h1 className="text-xl font-semibold">Review Questions</h1>
         </div>
-        <div className="my-3 text-left w-[96%] text-sm">
-          We will be using these questions during the interviews. Please make
-          sure they are ok.
+        
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-2 py-2">
+          <div className="w-8 h-1 bg-indigo-600 rounded" />
+          <div className="w-8 h-1 bg-indigo-600 rounded" />
+          <div className="w-8 h-1 bg-indigo-600 rounded" />
+        </div>
+
+        <div className="my-2 text-left w-[96%] text-sm text-gray-600">
+          Review the questions below. These will be used during the interviews.
         </div>
         <ScrollArea className="flex flex-col justify-center items-center w-full mt-3">
           {questions.map((question, index) => (
@@ -196,7 +203,7 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
           setDescription(e.target.value.trim());
         }}
       />
-      <div className="flex flex-row justify-end items-end w-full">
+      <div className="flex flex-row justify-end items-end w-full px-2">
         <Button
           disabled={
             isClicked ||
@@ -204,13 +211,13 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
             description.trim() === "" ||
             questions.some((question) => question.question.trim() === "")
           }
-          className="bg-indigo-600 hover:bg-indigo-800 mr-5 mt-2"
+          className="bg-indigo-600 hover:bg-indigo-800 mt-2"
           onClick={() => {
             setIsClicked(true);
             onSave();
           }}
         >
-          Save
+          Create Interview
         </Button>
       </div>
     </div>

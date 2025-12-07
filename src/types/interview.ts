@@ -9,6 +9,14 @@ export interface Quote {
   call_id: string;
 }
 
+// Custom metric definition for interview evaluation
+export interface CustomMetric {
+  id: string;
+  title: string;
+  description: string;
+  weight: number; // Weight from 0-10, all weights should sum to 10
+}
+
 export interface InterviewBase {
   user_id: string;
   organization_id: string;
@@ -23,6 +31,7 @@ export interface InterviewBase {
   response_count: bigint;
   job_context?: string;
   logo_url?: string | null;
+  custom_metrics?: CustomMetric[]; // Custom evaluation metrics
 }
 
 export interface InterviewDetails {
