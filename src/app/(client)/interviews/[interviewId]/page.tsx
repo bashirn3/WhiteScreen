@@ -5,7 +5,8 @@ import { Switch } from "@/components/ui/switch";
 import React, { useState, useEffect } from "react";
 import { useOrganization } from "@clerk/nextjs";
 import { useInterviews } from "@/contexts/interviews.context";
-import { Share2, Filter, Pencil, UserIcon, Eye, Palette, FileText } from "lucide-react";
+import { Share2, Filter, Pencil, UserIcon, Eye, Palette, FileText, Upload, FileUp, RefreshCw } from "lucide-react";
+import axios from "axios";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useRouter } from "next/navigation";
 import { ResponseService } from "@/services/responses.service";
@@ -21,6 +22,7 @@ import Modal from "@/components/dashboard/Modal";
 import { toast } from "sonner";
 import { ChromePicker } from "react-color";
 import SharePopup from "@/components/dashboard/interview/sharePopup";
+import CVUploader from "@/components/dashboard/interview/cvUploader";
 import {
   Tooltip,
   TooltipTrigger,
@@ -67,6 +69,9 @@ function InterviewHome({ params, searchParams }: Props) {
   const [iconColor, seticonColor] = useState<string>("#4F46E5");
   const { organization } = useOrganization();
   const [filterStatus, setFilterStatus] = useState<string>("ALL");
+  const [isCVUploaderOpen, setIsCVUploaderOpen] = useState(false);
+  const [responseTab, setResponseTab] = useState<"interviews" | "cvs">("interviews");
+  const [isReanalyzingCVs, setIsReanalyzingCVs] = useState(false);
 
   const seeInterviewPreviewPage = () => {
     const protocol = base_url?.includes("localhost") ? "http" : "https";
@@ -234,6 +239,15 @@ function InterviewHome({ params, searchParams }: Props) {
     setIsSharePopupOpen(false);
   };
 
+  const refreshResponses = async () => {
+    try {
+      const response = await ResponseService.getAllResponses(params.interviewId);
+      setResponses(response);
+    } catch (error) {
+      console.error("Error refreshing responses:", error);
+    }
+  };
+
   const handleColorChange = (color: any) => {
     setThemeColor(color.hex);
   };
@@ -250,13 +264,63 @@ function InterviewHome({ params, searchParams }: Props) {
     if (!responses) {
       return [];
     }
-    if (filterStatus == "ALL") {
-      return responses;
+    
+    // First filter by tab (interviews vs CVs)
+    let filtered = responses.filter((response) => {
+      const isCVUpload = response?.details?.source === "cv_upload";
+      if (responseTab === "cvs") {
+        return isCVUpload;
+      } else {
+        return !isCVUpload;
+      }
+    });
+    
+    // Then filter by status if not "ALL"
+    if (filterStatus !== "ALL") {
+      filtered = filtered.filter(
+        (response) => response?.candidate_status === filterStatus,
+      );
     }
 
-    return responses?.filter(
-      (response) => response?.candidate_status == filterStatus,
-    );
+    return filtered;
+  };
+  
+  // Count for tabs
+  const interviewCount = responses?.filter(r => r?.details?.source !== "cv_upload").length || 0;
+  const cvCount = responses?.filter(r => r?.details?.source === "cv_upload").length || 0;
+
+  const handleReanalyzeCVs = async () => {
+    if (cvCount === 0) {
+      toast.error("No CV responses to re-analyze", {
+        position: "bottom-right",
+        duration: 3000,
+      });
+      return;
+    }
+
+    setIsReanalyzingCVs(true);
+    try {
+      const response = await axios.post("/api/reanalyze-cv", {
+        interviewId: params.interviewId,
+      });
+
+      if (response.data.success) {
+        toast.success(response.data.message, {
+          position: "bottom-right",
+          duration: 5000,
+        });
+        // Refresh responses to show updated names
+        await refreshResponses();
+      }
+    } catch (error: any) {
+      console.error("Error re-analyzing CVs:", error);
+      toast.error(error?.response?.data?.error || "Failed to re-analyze CVs", {
+        position: "bottom-right",
+        duration: 3000,
+      });
+    } finally {
+      setIsReanalyzingCVs(false);
+    }
   };
 
   const handleDownloadAllCandidatesPDF = async () => {
@@ -304,6 +368,63 @@ function InterviewHome({ params, searchParams }: Props) {
               {String(responses?.length)}
             </div>
 
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    className={
+                      "bg-transparent shadow-none relative text-xs text-green-600 px-1 h-7 hover:scale-110 hover:bg-transparent"
+                    }
+                    variant={"secondary"}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setIsCVUploaderOpen(true);
+                    }}
+                  >
+                    <FileUp size={16} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent
+                  className="bg-zinc-300"
+                  side="bottom"
+                  sideOffset={4}
+                >
+                  <span className="text-black flex flex-row gap-4">
+                    Upload CVs
+                  </span>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            {cvCount > 0 && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      className={
+                        "bg-transparent shadow-none relative text-xs text-purple-600 px-1 h-7 hover:scale-110 hover:bg-transparent"
+                      }
+                      variant={"secondary"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleReanalyzeCVs();
+                      }}
+                      disabled={isReanalyzingCVs}
+                    >
+                      <RefreshCw size={16} className={isReanalyzingCVs ? "animate-spin" : ""} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    className="bg-zinc-300"
+                    side="bottom"
+                    sideOffset={4}
+                  >
+                    <span className="text-black flex flex-row gap-4">
+                      {isReanalyzingCVs ? "Re-analyzing CVs..." : `Re-analyze ${cvCount} CV(s)`}
+                    </span>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -461,6 +582,30 @@ function InterviewHome({ params, searchParams }: Props) {
           </div>
           <div className="flex flex-row w-full p-2 h-[85%] gap-1 ">
             <div className="w-[20%] flex flex-col p-2 divide-y-2 rounded-sm border-2 border-slate-100">
+              {/* Tabs for Interviews vs CVs */}
+              <div className="flex w-full border-b border-slate-200 mb-2">
+                <button
+                  onClick={() => setResponseTab("interviews")}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                    responseTab === "interviews"
+                      ? "text-indigo-600 border-b-2 border-indigo-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  Interviews ({interviewCount})
+                </button>
+                <button
+                  onClick={() => setResponseTab("cvs")}
+                  className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                    responseTab === "cvs"
+                      ? "text-green-600 border-b-2 border-green-600"
+                      : "text-gray-500 hover:text-gray-700"
+                  }`}
+                >
+                  CVs ({cvCount})
+                </button>
+              </div>
+              
               <div className="flex w-full justify-center py-2">
                 <Select
                   onValueChange={async (newValue: string) => {
@@ -535,11 +680,18 @@ function InterviewHome({ params, searchParams }: Props) {
                         )}
                         <div className="flex items-center justify-between w-full">
                           <div className="flex flex-col my-auto">
-                            <p className="font-medium mb-[2px]">
-                              {response?.name
-                                ? `${response?.name}'s Response`
-                                : "Anonymous"}
-                            </p>
+                            <div className="flex items-center gap-1">
+                              <p className="font-medium mb-[2px]">
+                                {response?.name
+                                  ? `${response?.name}'s Response`
+                                  : "Anonymous"}
+                              </p>
+                              {response?.details?.source === "cv_upload" && (
+                                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">
+                                  CV
+                                </span>
+                              )}
+                            </div>
                             <p className="">
                               {formatTimestampToDateHHMM(
                                 String(response?.created_at),
@@ -646,6 +798,30 @@ function InterviewHome({ params, searchParams }: Props) {
           onClose={closeSharePopup}
         />
       )}
+      <Modal
+        open={isCVUploaderOpen}
+        closeOnOutsideClick={true}
+        onClose={() => setIsCVUploaderOpen(false)}
+      >
+        <div className="w-[500px] p-4">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Upload CVs</h3>
+              <p className="text-sm text-gray-500">
+                Upload candidate CVs to rank them against this interview&apos;s criteria
+              </p>
+            </div>
+          </div>
+          <CVUploader
+            interviewId={params.interviewId}
+            onUploadComplete={() => {
+              // Only refresh responses, don't close the popup
+              // User can close manually or continue uploading
+              refreshResponses();
+            }}
+          />
+        </div>
+      </Modal>
     </div>
   );
 }

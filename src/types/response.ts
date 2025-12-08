@@ -66,7 +66,22 @@ export interface CallData {
   opt_out_sensitive_data_storage: boolean;
   start_timestamp: number;
   end_timestamp: number;
-  transcript: string;
+  transcript?: string;
+  // CV upload specific fields
+  details?: {
+    source?: string;
+    fileName?: string;
+    cvText?: string;
+    extractedInfo?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+    };
+    call_analysis?: {
+      call_summary?: string;
+      user_sentiment?: string;
+    };
+  };
   transcript_object: {
     role: "agent" | "user";
     content: string;
