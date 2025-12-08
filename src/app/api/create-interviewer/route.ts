@@ -16,33 +16,36 @@ export async function GET(res: NextRequest) {
     const lisaAssistant = await vapiClient.assistants.create({
       name: INTERVIEWERS.LISA.name,
       
-      // Model configuration (matches original Retell LLM settings)
+      // Model configuration (optimized for speed)
       model: {
         provider: "openai",
         model: "gpt-4o",
+        temperature: 0.7,  // Faster, more focused responses
         messages: [
           {
             role: "system",
             content: VAPI_ASSISTANT_SYSTEM_PROMPT,
           },
         ],
-        // No temperature - let it default to 1.0 like Retell
       },
       
-      // Voice configuration (using original Retell voice ID)
+      // Voice configuration (optimized for streaming speed)
       voice: {
         provider: "11labs" as const,
         voiceId: INTERVIEWERS.LISA.voiceId,
+        stability: 0.5,
+        similarityBoost: 0.75,
+        optimizeStreamingLatency: 4,  // Max streaming optimization
       },
       
       // First message mode - let model generate greeting from system prompt
       firstMessageMode: "assistant-speaks-first-with-model-generated-message",
       
-      // Transcription settings
+      // Transcription settings (upgraded to latest fastest model)
       transcriber: {
         provider: "deepgram",
-        model: "nova-2",
-        language: "en",
+        model: "nova-3",  // Latest, fastest version
+        language: "en-US",
       },
       
       // Call behavior (matches original Retell end_call tool)
@@ -69,30 +72,36 @@ export async function GET(res: NextRequest) {
     const bobAssistant = await vapiClient.assistants.create({
       name: INTERVIEWERS.BOB.name,
       
+      // Model configuration (optimized for speed)
       model: {
         provider: "openai",
         model: "gpt-4o",
+        temperature: 0.7,  // Faster, more focused responses
         messages: [
           {
             role: "system",
             content: VAPI_ASSISTANT_SYSTEM_PROMPT,
           },
         ],
-        // No temperature - let it default to 1.0 like Retell
       },
       
+      // Voice configuration (optimized for streaming speed)
       voice: {
         provider: "11labs" as const,
         voiceId: INTERVIEWERS.BOB.voiceId,
+        stability: 0.5,
+        similarityBoost: 0.75,
+        optimizeStreamingLatency: 4,  // Max streaming optimization
       },
       
       // First message mode - let model generate greeting from system prompt
       firstMessageMode: "assistant-speaks-first-with-model-generated-message",
       
+      // Transcription settings (upgraded to latest fastest model)
       transcriber: {
         provider: "deepgram",
-        model: "nova-2",
-        language: "en",
+        model: "nova-3",  // Latest, fastest version
+        language: "en-US",
       },
       
       endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
