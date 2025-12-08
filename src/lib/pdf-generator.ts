@@ -1,7 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import JSZip from "jszip";
-import { Response, Analytics, CallData } from "@/types/response";
+import { Response, Analytics, CallData, CustomMetricScore } from "@/types/response";
 import { Interview } from "@/types/interview";
 
 // Helper function to add header to PDF
@@ -187,13 +187,22 @@ export const generateIndividualCandidatePDF = async (
     const chartRadius = 12;
     const chartSpacing = 50;
     const chartStartX = margin + 5;
+    let chartsDrawn = 0;
+    
+    // Weighted Score first if available
+    if (analytics.weightedOverallScore !== undefined) {
+      drawCircularProgress(doc, chartStartX + (chartsDrawn * chartSpacing), yPosition, chartRadius, Math.round(analytics.weightedOverallScore), 100, "Weighted Score");
+      chartsDrawn++;
+    }
     
     if (analytics.overallScore !== undefined) {
-      drawCircularProgress(doc, chartStartX, yPosition, chartRadius, analytics.overallScore, 100, "Overall Hiring Score");
+      drawCircularProgress(doc, chartStartX + (chartsDrawn * chartSpacing), yPosition, chartRadius, analytics.overallScore, 100, "Overall Hiring");
+      chartsDrawn++;
     }
     
     if (analytics.communication?.score !== undefined) {
-      drawCircularProgress(doc, chartStartX + chartSpacing, yPosition, chartRadius, analytics.communication.score, 10, "Communication");
+      drawCircularProgress(doc, chartStartX + (chartsDrawn * chartSpacing), yPosition, chartRadius, analytics.communication.score, 10, "Communication");
+      chartsDrawn++;
     }
     
     yPosition += chartRadius * 2 + 16;
@@ -205,7 +214,7 @@ export const generateIndividualCandidatePDF = async (
       doc.text("Feedback: ", margin, yPosition);
       doc.setFont("helvetica", "normal");
       yPosition = addWrappedText(doc, analytics.overallFeedback, margin, yPosition + 4, contentWidth, 4);
-      yPosition += 5;
+      yPosition += 3;
     }
 
     // Communication feedback
@@ -215,7 +224,36 @@ export const generateIndividualCandidatePDF = async (
       doc.text("Communication: ", margin, yPosition);
       doc.setFont("helvetica", "normal");
       yPosition = addWrappedText(doc, analytics.communication.feedback, margin, yPosition + 4, contentWidth, 4);
+      yPosition += 3;
+    }
+
+    // Custom Metrics Section
+    if (analytics.customMetrics && analytics.customMetrics.length > 0) {
+      yPosition += 3;
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "bold");
+      doc.text("Custom Evaluation Metrics", margin, yPosition);
       yPosition += 5;
+      
+      analytics.customMetrics.forEach((metric: CustomMetricScore) => {
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        const scoreColor = metric.score >= 7 ? [34, 197, 94] : metric.score >= 4 ? [234, 179, 8] : [239, 68, 68];
+        doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]);
+        doc.text(`${metric.title}: ${metric.score}/10`, margin, yPosition);
+        doc.setTextColor(0, 0, 0);
+        doc.setFont("helvetica", "normal");
+        doc.text(` (Weight: ${metric.weight})`, margin + doc.getTextWidth(`${metric.title}: ${metric.score}/10`), yPosition);
+        yPosition += 4;
+        
+        if (metric.feedback) {
+          doc.setFontSize(7);
+          const feedbackLines = doc.splitTextToSize(metric.feedback, contentWidth - 5);
+          doc.text(feedbackLines.slice(0, 2), margin + 3, yPosition); // Max 2 lines
+          yPosition += Math.min(feedbackLines.length, 2) * 3 + 2;
+        }
+      });
+      yPosition += 3;
     }
 
     // User Sentiment from call analysis
@@ -233,7 +271,7 @@ export const generateIndividualCandidatePDF = async (
       doc.text("Call Summary: ", margin, yPosition);
       doc.setFont("helvetica", "normal");
       yPosition = addWrappedText(doc, callData.call_analysis.call_summary, margin, yPosition + 4, contentWidth, 4);
-      yPosition += 8;
+      yPosition += 5;
     }
 
     // Question Summaries (compact)
@@ -349,13 +387,22 @@ export const generateAllCandidatesPDF = async (
       const chartRadius = 12;
       const chartSpacing = 50;
       const chartStartX = margin + 5;
+      let chartsDrawn = 0;
+      
+      // Weighted Score first if available
+      if (analytics.weightedOverallScore !== undefined) {
+        drawCircularProgress(doc, chartStartX + (chartsDrawn * chartSpacing), yPosition, chartRadius, Math.round(analytics.weightedOverallScore), 100, "Weighted Score");
+        chartsDrawn++;
+      }
       
       if (analytics.overallScore !== undefined) {
-        drawCircularProgress(doc, chartStartX, yPosition, chartRadius, analytics.overallScore, 100, "Overall Hiring Score");
+        drawCircularProgress(doc, chartStartX + (chartsDrawn * chartSpacing), yPosition, chartRadius, analytics.overallScore, 100, "Overall Hiring");
+        chartsDrawn++;
       }
       
       if (analytics.communication?.score !== undefined) {
-        drawCircularProgress(doc, chartStartX + chartSpacing, yPosition, chartRadius, analytics.communication.score, 10, "Communication");
+        drawCircularProgress(doc, chartStartX + (chartsDrawn * chartSpacing), yPosition, chartRadius, analytics.communication.score, 10, "Communication");
+        chartsDrawn++;
       }
       
       yPosition += chartRadius * 2 + 16;
@@ -367,7 +414,7 @@ export const generateAllCandidatesPDF = async (
         doc.text("Feedback: ", margin, yPosition);
         doc.setFont("helvetica", "normal");
         yPosition = addWrappedText(doc, analytics.overallFeedback, margin, yPosition + 4, contentWidth, 4);
-        yPosition += 5;
+        yPosition += 3;
       }
 
       // Communication feedback
@@ -377,7 +424,36 @@ export const generateAllCandidatesPDF = async (
         doc.text("Communication: ", margin, yPosition);
         doc.setFont("helvetica", "normal");
         yPosition = addWrappedText(doc, analytics.communication.feedback, margin, yPosition + 4, contentWidth, 4);
+        yPosition += 3;
+      }
+
+      // Custom Metrics Section
+      if (analytics.customMetrics && analytics.customMetrics.length > 0) {
+        yPosition += 3;
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.text("Custom Evaluation Metrics", margin, yPosition);
         yPosition += 5;
+        
+        analytics.customMetrics.forEach((metric: CustomMetricScore) => {
+          doc.setFontSize(8);
+          doc.setFont("helvetica", "bold");
+          const scoreColor = metric.score >= 7 ? [34, 197, 94] : metric.score >= 4 ? [234, 179, 8] : [239, 68, 68];
+          doc.setTextColor(scoreColor[0], scoreColor[1], scoreColor[2]);
+          doc.text(`${metric.title}: ${metric.score}/10`, margin, yPosition);
+          doc.setTextColor(0, 0, 0);
+          doc.setFont("helvetica", "normal");
+          doc.text(` (Weight: ${metric.weight})`, margin + doc.getTextWidth(`${metric.title}: ${metric.score}/10`), yPosition);
+          yPosition += 4;
+          
+          if (metric.feedback) {
+            doc.setFontSize(7);
+            const feedbackLines = doc.splitTextToSize(metric.feedback, contentWidth - 5);
+            doc.text(feedbackLines.slice(0, 2), margin + 3, yPosition);
+            yPosition += Math.min(feedbackLines.length, 2) * 3 + 2;
+          }
+        });
+        yPosition += 3;
       }
 
       // User Sentiment from call analysis
@@ -395,7 +471,7 @@ export const generateAllCandidatesPDF = async (
         doc.text("Call Summary: ", margin, yPosition);
         doc.setFont("helvetica", "normal");
         yPosition = addWrappedText(doc, callData.call_analysis.call_summary, margin, yPosition + 4, contentWidth, 4);
-        yPosition += 8;
+        yPosition += 5;
       }
 
       // Question Summaries (compact)
@@ -405,7 +481,7 @@ export const generateAllCandidatesPDF = async (
         doc.text("Question Analysis", margin, yPosition);
         yPosition += 6;
 
-        analytics.questionSummaries.forEach((qs, index) => {
+        analytics.questionSummaries.forEach((qs: { question: string; summary: string }, index: number) => {
           doc.setFontSize(8);
           doc.setFont("helvetica", "bold");
           const questionText = doc.splitTextToSize(`Q${index + 1}: ${qs.question}`, contentWidth);

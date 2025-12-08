@@ -19,9 +19,10 @@ export interface Response {
 export interface CustomMetricScore {
   metricId: string;
   title: string;
-  score: number; // Score from 0-10
+  score: number; // Score from 0-10 for scale, 1 or 10 for boolean
   feedback: string;
   weight: number; // Original weight for reference
+  type: "scale" | "boolean"; // Metric type
 }
 
 export interface Analytics {

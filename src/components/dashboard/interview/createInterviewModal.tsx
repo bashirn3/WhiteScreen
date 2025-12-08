@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import LoaderWithLogo from "@/components/loaders/loader-with-logo/loaderWithLogo";
 import DetailsPopup from "@/components/dashboard/interview/create-popup/details";
 import CustomMetricsPopup from "@/components/dashboard/interview/create-popup/customMetrics";
@@ -10,7 +10,8 @@ interface Props {
   setOpen: (open: boolean) => void;
 }
 
-type Step = "details" | "loading" | "metrics" | "questions";
+// Flow: Details -> Loading -> Questions -> Metrics -> Save
+type Step = "details" | "loading" | "questions" | "metrics";
 
 const CreateEmptyInterviewData = (): InterviewBase => ({
   user_id: "",
@@ -39,16 +40,23 @@ function CreateInterviewModal({ open, setOpen }: Props) {
   const [isUploaded, setIsUploaded] = useState(false);
   const [fileName, setFileName] = useState("");
 
-  // Handle loading state transition
+  // Track when questions are ready
+  const [questionsReady, setQuestionsReady] = useState(false);
+
+  // Handle loading state transition - only move to questions when data is ready
   useEffect(() => {
-    if (step === "loading") {
-      // Short delay to show loader, then proceed to metrics
-      const timer = setTimeout(() => {
-        setStep("metrics");
-      }, 500);
-      return () => clearTimeout(timer);
+    if (step === "loading" && questionsReady) {
+      setStep("questions");
+      setQuestionsReady(false);
     }
-  }, [step]);
+  }, [step, questionsReady]);
+
+  // Watch for interview data changes during loading
+  useEffect(() => {
+    if (step === "loading" && interviewData.questions.length > 0) {
+      setQuestionsReady(true);
+    }
+  }, [step, interviewData.questions.length]);
 
   useEffect(() => {
     if (!open) {
@@ -65,20 +73,28 @@ function CreateInterviewModal({ open, setOpen }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const handleDetailsComplete = () => {
+  const handleDetailsComplete = useCallback(() => {
     setStep("loading");
-  };
+  }, []);
 
-  const handleMetricsBack = () => {
+  const handleSetInterviewData = useCallback((data: InterviewBase) => {
+    setInterviewData(data);
+    // If questions are set, mark as ready
+    if (data.questions && data.questions.length > 0) {
+      setQuestionsReady(true);
+    }
+  }, []);
+
+  const handleQuestionsBack = () => {
     setStep("details");
   };
 
-  const handleMetricsNext = () => {
-    setStep("questions");
+  const handleQuestionsNext = () => {
+    setStep("metrics");
   };
 
-  const handleQuestionsBack = () => {
-    setStep("metrics");
+  const handleMetricsBack = () => {
+    setStep("questions");
   };
 
   return (
@@ -92,7 +108,7 @@ function CreateInterviewModal({ open, setOpen }: Props) {
           open={open}
           setLoading={handleDetailsComplete}
           interviewData={interviewData}
-          setInterviewData={setInterviewData}
+          setInterviewData={handleSetInterviewData}
           isUploaded={isUploaded}
           setIsUploaded={setIsUploaded}
           fileName={fileName}
@@ -102,18 +118,20 @@ function CreateInterviewModal({ open, setOpen }: Props) {
           logoPreview={logoPreview}
           setLogoPreview={setLogoPreview}
         />
-      ) : step === "metrics" ? (
+      ) : step === "questions" ? (
+        <QuestionsPopup
+          interviewData={interviewData}
+          setInterviewData={setInterviewData}
+          logoFile={logoFile}
+          onBack={handleQuestionsBack}
+          onNext={handleQuestionsNext}
+        />
+      ) : (
         <CustomMetricsPopup
           interviewData={interviewData}
           setInterviewData={setInterviewData}
-          onBack={handleMetricsBack}
-          onNext={handleMetricsNext}
-        />
-      ) : (
-        <QuestionsPopup
-          interviewData={interviewData}
           logoFile={logoFile}
-          setProceed={handleQuestionsBack}
+          onBack={handleMetricsBack}
           setOpen={setOpen}
         />
       )}
@@ -122,3 +140,4 @@ function CreateInterviewModal({ open, setOpen }: Props) {
 }
 
 export default CreateInterviewModal;
+

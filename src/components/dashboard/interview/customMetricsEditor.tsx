@@ -2,11 +2,11 @@
 
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { CustomMetric } from "@/types/interview";
+import { CustomMetric, MetricType } from "@/types/interview";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, Info, AlertCircle, Scale } from "lucide-react";
+import { Plus, Trash2, Info, AlertCircle, Scale, ToggleLeft } from "lucide-react";
 import {
   Tooltip,
   TooltipTrigger,
@@ -14,6 +14,13 @@ import {
   TooltipProvider,
 } from "@/components/ui/tooltip";
 import { Slider } from "@/components/ui/slider";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface CustomMetricsEditorProps {
   metrics: CustomMetric[];
@@ -27,12 +34,14 @@ const DEFAULT_METRICS: CustomMetric[] = [
     title: "Technical Ability",
     description: "Evaluate technical knowledge, problem-solving skills, and domain expertise demonstrated during the interview.",
     weight: 5,
+    type: "scale",
   },
   {
     id: "soft_skills",
     title: "Soft Skills",
     description: "Assess communication, teamwork, adaptability, and interpersonal skills shown in responses.",
     weight: 5,
+    type: "scale",
   },
 ];
 
@@ -55,12 +64,13 @@ function CustomMetricsEditor({
     setShowWeightWarning(localMetrics.length > 0 && total !== 10);
   }, [localMetrics]);
 
-  const handleAddMetric = () => {
+  const handleAddMetric = (type: MetricType = "scale") => {
     const newMetric: CustomMetric = {
       id: uuidv4(),
       title: "",
       description: "",
       weight: 1,
+      type,
     };
     const updatedMetrics = [...localMetrics, newMetric];
     setLocalMetrics(updatedMetrics);
@@ -172,7 +182,11 @@ function CustomMetricsEditor({
         {localMetrics.map((metric, index) => (
           <div
             key={metric.id}
-            className="border border-gray-200 rounded-lg p-4 bg-white shadow-sm"
+            className={`border rounded-lg p-4 shadow-sm ${
+              metric.type === "boolean" 
+                ? "border-purple-200 bg-purple-50" 
+                : "border-gray-200 bg-white"
+            }`}
           >
             <div className="flex items-start gap-3">
               <div className="flex-1 space-y-3">
@@ -186,14 +200,44 @@ function CustomMetricsEditor({
                       onChange={(e) =>
                         handleMetricChange(metric.id, "title", e.target.value)
                       }
-                      placeholder="e.g., Technical Ability"
+                      placeholder={metric.type === "boolean" ? "e.g., Has relevant experience?" : "e.g., Technical Ability"}
                       disabled={disabled}
                       className="text-sm"
                     />
                   </div>
-                  <div className="w-32">
+                  <div className="w-28">
                     <label className="text-xs font-medium text-gray-600 mb-1 block">
-                      Weight (0-10)
+                      Type
+                    </label>
+                    <Select
+                      value={metric.type || "scale"}
+                      onValueChange={(value: MetricType) =>
+                        handleMetricChange(metric.id, "type", value)
+                      }
+                      disabled={disabled}
+                    >
+                      <SelectTrigger className="text-xs h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="scale">
+                          <div className="flex items-center gap-1">
+                            <Scale className="h-3 w-3" />
+                            Scale (0-10)
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="boolean">
+                          <div className="flex items-center gap-1">
+                            <ToggleLeft className="h-3 w-3" />
+                            Yes/No
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-24">
+                    <label className="text-xs font-medium text-gray-600 mb-1 block">
+                      Weight
                     </label>
                     <div className="flex items-center gap-2">
                       <Slider
@@ -202,12 +246,12 @@ function CustomMetricsEditor({
                           handleMetricChange(metric.id, "weight", value[0])
                         }
                         max={10}
-                        min={0}
+                        min={1}
                         step={1}
                         disabled={disabled}
                         className="flex-1"
                       />
-                      <span className="text-sm font-bold text-indigo-600 w-6 text-center">
+                      <span className="text-sm font-bold text-indigo-600 w-5 text-center">
                         {metric.weight}
                       </span>
                     </div>
@@ -215,19 +259,28 @@ function CustomMetricsEditor({
                 </div>
                 <div>
                   <label className="text-xs font-medium text-gray-600 mb-1 block">
-                    Description (What to evaluate)
+                    {metric.type === "boolean" 
+                      ? "Question to check (Yes = 10, No = 1)" 
+                      : "Description (What to evaluate)"}
                   </label>
                   <Textarea
                     value={metric.description}
                     onChange={(e) =>
                       handleMetricChange(metric.id, "description", e.target.value)
                     }
-                    placeholder="Describe what should be evaluated for this metric..."
+                    placeholder={metric.type === "boolean" 
+                      ? "e.g., Does the candidate have 3+ years of experience in the field?" 
+                      : "Describe what should be evaluated for this metric..."}
                     disabled={disabled}
                     rows={2}
                     className="text-sm resize-none"
                   />
                 </div>
+                {metric.type === "boolean" && (
+                  <p className="text-xs text-purple-600 italic">
+                    ℹ️ Boolean metrics score 10 if YES, 1 if NO or not enough evidence
+                  </p>
+                )}
               </div>
               {!disabled && (
                 <Button
@@ -246,15 +299,26 @@ function CustomMetricsEditor({
       </div>
 
       {!disabled && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={handleAddMetric}
-          className="w-full border-dashed border-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Custom Metric
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleAddMetric("scale")}
+            className="flex-1 border-dashed border-2 border-indigo-300 text-indigo-600 hover:bg-indigo-50"
+          >
+            <Scale className="h-4 w-4 mr-2" />
+            Add Scale Metric (0-10)
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => handleAddMetric("boolean")}
+            className="flex-1 border-dashed border-2 border-purple-300 text-purple-600 hover:bg-purple-50"
+          >
+            <ToggleLeft className="h-4 w-4 mr-2" />
+            Add Yes/No Metric
+          </Button>
+        </div>
       )}
 
       {localMetrics.length === 0 && (
