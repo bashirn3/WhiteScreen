@@ -10,22 +10,39 @@ const generateCustomMetricsPromptSection = (customMetrics: CustomMetric[]): stri
   }
 
   const metricsInstructions = customMetrics.map((metric, index) => {
-    return `   ${index + 1}. "${metric.title}" (Weight: ${metric.weight}/10): ${metric.description}
-      - Evaluate the candidate based on this specific criterion
-      - Provide a score from 0-10 and brief feedback (30 words max)`;
+    const metricType = (metric as any).type || "scale";
+    if (metricType === "boolean") {
+      return `   ${index + 1}. "${metric.title}" (Weight: ${metric.weight}/10) [BOOLEAN - Yes/No]:
+      - ${metric.description}
+      - This is a YES/NO question. Score MUST be either 10 (YES, the criterion is met) or 1 (NO, the criterion is NOT met)
+      - If there is NO evidence in the transcript to determine this, score MUST be 1`;
+    }
+    return `   ${index + 1}. "${metric.title}" (Weight: ${metric.weight}/10) [SCALE 0-10]:
+      - ${metric.description}
+      - Score from 0-10 based ONLY on evidence found in the transcript
+      - CRITICAL: If there is NO evidence or insufficient information to evaluate this metric, the score MUST be 1 or 2 (not a random middle score)
+      - Only give high scores (7-10) if there is CLEAR, STRONG evidence in the transcript`;
   }).join("\n");
 
   return `
 5. CUSTOM METRICS EVALUATION:
-   Evaluate the candidate on the following custom metrics defined by the interviewer:
+   Evaluate the candidate on the following custom metrics defined by the interviewer.
+   
+   ⚠️ CRITICAL SCORING RULES:
+   - You MUST base scores ONLY on what is explicitly stated or demonstrated in the transcript
+   - If a metric cannot be evaluated due to lack of information, give a LOW score (1-2), NOT a middle score
+   - Do NOT assume or infer qualities that are not demonstrated
+   - Do NOT give average scores (4-6) just because you're unsure - be honest with low scores when evidence is lacking
+   
 ${metricsInstructions}
 
    For each custom metric, provide:
    - metricId: The exact metric ID provided
    - title: The metric title
-   - score: A score from 0-10
-   - feedback: Brief feedback explaining the score (30 words max)
+   - score: A score (see type above - either 0-10 scale or 1/10 boolean)
+   - feedback: Brief feedback explaining the score - if low score due to lack of evidence, say "Insufficient evidence in transcript"
    - weight: The metric weight
+   - type: "scale" or "boolean"
 
 6. WEIGHTED OVERALL SCORE:
    Calculate the weighted overall score based on the custom metrics:
@@ -45,9 +62,10 @@ const generateCustomMetricsJsonStructure = (customMetrics: CustomMetric[]): stri
     {
       "metricId": string,    // The exact ID from the metric definition
       "title": string,       // The metric title
-      "score": number,       // Score from 0-10
-      "feedback": string,    // Brief feedback
-      "weight": number       // The metric weight
+      "score": number,       // Score: 0-10 for scale, 1 or 10 for boolean
+      "feedback": string,    // Brief feedback - say "Insufficient evidence" if applicable
+      "weight": number,      // The metric weight
+      "type": string         // "scale" or "boolean"
     }
   ],
   "weightedOverallScore": number  // Calculated weighted score (0-100)`;

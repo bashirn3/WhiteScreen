@@ -1,36 +1,26 @@
 import { useState, useEffect, useRef } from "react";
-import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
-import { useClerk, useOrganization } from "@clerk/nextjs";
 import { InterviewBase, Question } from "@/types/interview";
-import { useInterviews } from "@/contexts/interviews.context";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import QuestionCard from "@/components/dashboard/interview/create-popup/questionCard";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
-import { ChevronLeft } from "lucide-react";
-import { toast } from "sonner";
+import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 
 interface Props {
   interviewData: InterviewBase;
+  setInterviewData: (data: InterviewBase) => void;
   logoFile: File | null;
-  logoPreview?: string | null;
-  setProceed: (proceed: boolean) => void;
-  setOpen: (open: boolean) => void;
+  onBack: () => void;
+  onNext: () => void;
 }
 
-function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setOpen }: Props) {
-  const { user } = useClerk();
-  const { organization } = useOrganization();
-  const [isClicked, setIsClicked] = useState(false);
-
+function QuestionsPopup({ interviewData, setInterviewData, logoFile, onBack, onNext }: Props) {
   const [questions, setQuestions] = useState<Question[]>(
     interviewData.questions,
   );
   const [description, setDescription] = useState<string>(
-    interviewData.description.trim(),
+    interviewData.description?.trim() || "",
   );
-  const { fetchInterviews } = useInterviews();
 
   const endOfListRef = useRef<HTMLDivElement>(null);
   const prevQuestionLengthRef = useRef(questions.length);
@@ -52,7 +42,6 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
           follow_up_count: 1,
         })),
       );
-
       return;
     }
     setQuestions(questions.filter((question) => question.id !== id));
@@ -67,57 +56,14 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
     }
   };
 
-  const onSave = async () => {
-    try {
-      interviewData.user_id = user?.id || "";
-      interviewData.organization_id = organization?.id || "";
-
-      interviewData.questions = questions;
-      interviewData.description = description;
-
-      let logoUrlPayload =
-        logoPreview && !logoPreview.startsWith("blob:")
-          ? logoPreview
-          : interviewData.logo_url ?? undefined;
-      if (typeof logoUrlPayload === "string" && logoUrlPayload.startsWith("blob:")) {
-        logoUrlPayload = undefined;
-      }
-
-      const sanitizedInterviewData = {
-        ...interviewData,
-        interviewer_id: interviewData.interviewer_id.toString(),
-        response_count: interviewData.response_count.toString(),
-        logo_url:
-          logoFile || logoUrlPayload !== undefined
-            ? logoUrlPayload ?? null
-            : organization?.imageUrl || null,
-      };
-
-      const formData = new FormData();
-      formData.append("interviewData", JSON.stringify(sanitizedInterviewData));
-      if (logoFile) {
-        formData.append("logo", logoFile);
-      }
-
-      const response = await axios.post("/api/create-interview", formData, {
-        headers: {
-          "Content-Type": "multipart/form-data",
-          "x-organization-name": organization?.name || "",
-        },
-      });
-
-      if (response.status === 200) {
-        toast.success("Interview created successfully.");
-      }
-
-      setIsClicked(false);
-      fetchInterviews();
-      setOpen(false);
-    } catch (error) {
-      console.error("Error creating interview:", error);
-      toast.error("Failed to create interview. Please try again.");
-      setIsClicked(false);
-    }
+  const handleNext = () => {
+    // Save questions and description to interview data and proceed
+    setInterviewData({
+      ...interviewData,
+      questions: questions,
+      description: description.trim(),
+    });
+    onNext();
   };
 
   useEffect(() => {
@@ -127,35 +73,43 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
     prevQuestionLengthRef.current = questions.length;
   }, [questions.length]);
 
-  return (
-    <div className="w-[38rem]">
-      <div
-        className={`text-center px-1 flex flex-col justify-top items-center ${
-          interviewData.question_count > 1 ? "h-[26rem]" : ""
-        } `}
-      >
-        <div className="relative flex justify-center w-full">
-          <ChevronLeft
-            className="absolute left-0 opacity-50 cursor-pointer hover:opacity-100 text-gray-600 mr-36"
-            size={30}
-            onClick={() => {
-              setProceed(false);
-            }}
-          />
-          <h1 className="text-xl font-semibold">Review Questions</h1>
-        </div>
-        
-        {/* Step indicator */}
-        <div className="flex items-center justify-center gap-2 py-2">
-          <div className="w-8 h-1 bg-indigo-600 rounded" />
-          <div className="w-8 h-1 bg-indigo-600 rounded" />
-          <div className="w-8 h-1 bg-indigo-600 rounded" />
-        </div>
+  const isValid = 
+    questions.length >= interviewData.question_count &&
+    description.trim() !== "" &&
+    questions.every((q) => q.question.trim() !== "");
 
-        <div className="my-2 text-left w-[96%] text-sm text-gray-600">
-          Review the questions below. These will be used during the interviews.
-        </div>
-        <ScrollArea className="flex flex-col justify-center items-center w-full mt-3">
+  return (
+    <div className="w-[38rem] h-[35rem] flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 pt-4 pb-2">
+        <button
+          onClick={onBack}
+          className="flex items-center text-gray-600 hover:text-gray-900"
+        >
+          <ChevronLeft className="h-5 w-5" />
+          <span className="text-sm">Back</span>
+        </button>
+        <h1 className="text-xl font-semibold">Review Questions</h1>
+        <div className="w-16" />
+      </div>
+
+      {/* Step indicator */}
+      <div className="flex items-center justify-center gap-2 py-2">
+        <div className="w-8 h-1 bg-indigo-600 rounded" />
+        <div className="w-8 h-1 bg-indigo-600 rounded" />
+        <div className="w-8 h-1 bg-gray-300 rounded" />
+      </div>
+
+      {/* Description */}
+      <div className="px-6 py-2">
+        <p className="text-sm text-gray-600 text-center">
+          Review and edit the interview questions. These will be used during the interviews.
+        </p>
+      </div>
+
+      {/* Questions List */}
+      <ScrollArea className="flex-1 px-6">
+        <div className="space-y-2">
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id}
@@ -166,61 +120,52 @@ function QuestionsPopup({ interviewData, logoFile, logoPreview, setProceed, setO
             />
           ))}
           <div ref={endOfListRef} />
-        </ScrollArea>
-        {questions.length < interviewData.question_count ? (
+        </div>
+        
+        {questions.length < interviewData.question_count && (
           <div
-            className="border-indigo-600 opacity-75 hover:opacity-100 w-fit  rounded-full"
+            className="flex items-center justify-center py-3 cursor-pointer opacity-75 hover:opacity-100"
             onClick={handleAddQuestion}
           >
             <Plus
-              size={45}
+              size={40}
               strokeWidth={2.2}
-              className="text-indigo-600  cursor-pointer"
+              className="text-indigo-600"
             />
           </div>
-        ) : (
-          <></>
         )}
-      </div>
-      <p className="mt-3 mb-1 ml-2 font-medium">
-        Interview Description{" "}
-        <span
-          style={{ fontSize: "0.7rem", lineHeight: "0.66rem" }}
-          className="font-light text-xs italic w-full text-left block"
-        >
-          Note: Interviewees will see this description.
-        </span>
-      </p>
-      <textarea
-        value={description}
-        className="h-fit mt-3 mx-2 py-2 border-2 rounded-md px-2 w-full border-gray-400"
-        placeholder="Enter your interview description."
-        rows={3}
-        onChange={(e) => {
-          setDescription(e.target.value);
-        }}
-        onBlur={(e) => {
-          setDescription(e.target.value.trim());
-        }}
-      />
-      <div className="flex flex-row justify-end items-end w-full px-2">
+
+        {/* Description field */}
+        <div className="mt-4 mb-4">
+          <p className="font-medium text-sm mb-1">
+            Interview Description
+            <span className="text-xs text-gray-500 font-normal ml-2">
+              (Interviewees will see this)
+            </span>
+          </p>
+          <textarea
+            value={description}
+            className="w-full h-20 py-2 px-3 border-2 rounded-md border-gray-300 text-sm"
+            placeholder="Enter your interview description..."
+            onChange={(e) => setDescription(e.target.value)}
+            onBlur={(e) => setDescription(e.target.value.trim())}
+          />
+        </div>
+      </ScrollArea>
+
+      {/* Footer */}
+      <div className="flex items-center justify-end px-6 py-4 border-t">
         <Button
-          disabled={
-            isClicked ||
-            questions.length < interviewData.question_count ||
-            description.trim() === "" ||
-            questions.some((question) => question.question.trim() === "")
-          }
-          className="bg-indigo-600 hover:bg-indigo-800 mt-2"
-          onClick={() => {
-            setIsClicked(true);
-            onSave();
-          }}
+          onClick={handleNext}
+          disabled={!isValid}
+          className="bg-indigo-600 hover:bg-indigo-800"
         >
-          Create Interview
+          Continue to Evaluation Metrics
+          <ChevronRight className="h-4 w-4 ml-1" />
         </Button>
       </div>
     </div>
   );
 }
+
 export default QuestionsPopup;

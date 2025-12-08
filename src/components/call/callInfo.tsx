@@ -212,9 +212,9 @@ function CallInfo({
                     <ArrowLeft className="mr-2" />
                     <p className="text-sm font-semibold">Back to Summary</p>
                   </div>
-                  {tabSwitchCount && tabSwitchCount > 0 && (
+                  {tabSwitchCount !== undefined && tabSwitchCount !== null && tabSwitchCount > 0 && (
                     <p className="text-sm font-semibold text-red-500 bg-red-200 rounded-sm px-2 py-1">
-                      Tab Switching Detected
+                      Tab Switching Detected ({tabSwitchCount}x)
                     </p>
                   )}
                 </div>
@@ -338,50 +338,82 @@ function CallInfo({
             </div>
             {/* <div>{call.}</div> */}
           </div>
-          <div className="bg-slate-200 rounded-2xl min-h-[120px] p-4 px-5 my-3">
-            <p className="font-semibold my-2">General Summary</p>
+          <div className="bg-slate-200 rounded-2xl p-4 px-5 my-3">
+            <p className="font-semibold mb-3">General Summary</p>
 
-            <div className="grid grid-cols-3 gap-4 my-2 mt-4 ">
-              {analytics?.overallScore !== undefined && (
-                <div className="flex flex-col gap-3 text-sm p-4 rounded-2xl bg-slate-50">
-                  <div className="flex flex-row gap-2 align-middle">
+            <div className="grid grid-cols-2 gap-3">
+              {/* Weighted Score Card - Top Left */}
+              {analytics?.weightedOverallScore !== undefined && analytics?.customMetrics && (
+                <div className="flex flex-col p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200">
+                  <div className="flex items-center gap-3">
                     <CircularProgress
                       classNames={{
-                        svg: "w-28 h-28 drop-shadow-md",
+                        svg: "w-20 h-20 drop-shadow-md",
                         indicator: "stroke-indigo-600",
                         track: "stroke-indigo-600/10",
-                        value: "text-3xl font-semibold text-indigo-600",
+                        value: "text-2xl font-bold text-indigo-600",
+                      }}
+                      value={analytics?.weightedOverallScore}
+                      strokeWidth={4}
+                      showValueLabel={true}
+                      formatOptions={{ signDisplay: "never" }}
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-1">
+                        <Scale className="h-4 w-4 text-indigo-600" />
+                        <p className="font-semibold text-base text-indigo-700">Weighted Score</p>
+                      </div>
+                      <p className="text-xs text-gray-500">Based on {analytics.customMetrics.length} metrics</p>
+                    </div>
+                  </div>
+                  {/* Metrics Summary */}
+                  <div className="mt-3 pt-3 border-t border-indigo-200 space-y-1">
+                    {analytics.customMetrics.slice(0, 4).map((metric: CustomMetricScore) => (
+                      <div key={metric.metricId} className="flex items-center justify-between text-xs">
+                        <span className="text-gray-700 truncate max-w-[150px]">{metric.title}</span>
+                        <span className={`font-semibold ${metric.score >= 7 ? 'text-green-600' : metric.score >= 4 ? 'text-yellow-600' : 'text-red-500'}`}>
+                          {metric.score}/10
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Overall Hiring Score Card - Top Right */}
+              {analytics?.overallScore !== undefined && (
+                <div className="flex flex-col p-4 rounded-xl bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    <CircularProgress
+                      classNames={{
+                        svg: "w-20 h-20 drop-shadow-md",
+                        indicator: "stroke-orange-500",
+                        track: "stroke-orange-500/10",
+                        value: "text-2xl font-bold text-orange-500",
                       }}
                       value={analytics?.overallScore}
                       strokeWidth={4}
                       showValueLabel={true}
                       formatOptions={{ signDisplay: "never" }}
                     />
-                    <p className="font-medium my-auto text-xl">
-                      Overall Hiring Score
-                    </p>
+                    <p className="font-semibold text-base">Overall Hiring Score</p>
                   </div>
-                  <div className="">
-                    <div className="font-medium ">
-                      <span className="font-normal">Feedback: </span>
-                      {analytics?.overallFeedback === undefined ? (
-                        <Skeleton className="w-[200px] h-[20px]" />
-                      ) : (
-                        analytics?.overallFeedback
-                      )}
-                    </div>
-                  </div>
+                  <p className="text-xs text-gray-600 mt-2 line-clamp-3">
+                    {analytics?.overallFeedback || "No feedback available"}
+                  </p>
                 </div>
               )}
+
+              {/* Communication Card - Bottom Left */}
               {analytics?.communication && (
-                <div className="flex flex-col gap-3 text-sm p-4 rounded-2xl bg-slate-50">
-                  <div className="flex flex-row gap-2 align-middle">
+                <div className="flex flex-col p-4 rounded-xl bg-slate-50">
+                  <div className="flex items-center gap-3">
                     <CircularProgress
                       classNames={{
-                        svg: "w-28 h-28 drop-shadow-md",
-                        indicator: "stroke-indigo-600",
-                        track: "stroke-indigo-600/10",
-                        value: "text-3xl font-semibold text-indigo-600",
+                        svg: "w-20 h-20 drop-shadow-md",
+                        indicator: "stroke-blue-500",
+                        track: "stroke-blue-500/10",
+                        value: "text-2xl font-bold text-blue-500",
                       }}
                       value={analytics?.communication.score}
                       maxValue={10}
@@ -391,62 +423,36 @@ function CallInfo({
                       valueLabel={
                         <div className="flex items-baseline">
                           {analytics?.communication.score ?? 0}
-                          <span className="text-xl ml-0.5">/10</span>
+                          <span className="text-sm">/10</span>
                         </div>
                       }
                       formatOptions={{ signDisplay: "never" }}
                     />
-                    <p className="font-medium my-auto text-xl">Communication</p>
+                    <p className="font-semibold text-base">Communication</p>
                   </div>
-                  <div className="">
-                    <div className="font-medium ">
-                      <span className="font-normal">Feedback: </span>
-                      {analytics?.communication.feedback === undefined ? (
-                        <Skeleton className="w-[200px] h-[20px]" />
-                      ) : (
-                        analytics?.communication.feedback
-                      )}
-                    </div>
-                  </div>
+                  <p className="text-xs text-gray-600 mt-2 line-clamp-3">
+                    {analytics?.communication.feedback || "No feedback available"}
+                  </p>
                 </div>
               )}
-              <div className="flex flex-col gap-3 text-sm p-4 rounded-2xl bg-slate-50">
-                <div className="flex flex-row gap-2  align-middle">
-                  <p className="my-auto">User Sentiment: </p>
-                  <p className="font-medium my-auto">
-                    {call?.call_analysis?.user_sentiment === undefined ? (
-                      <Skeleton className="w-[200px] h-[20px]" />
-                    ) : (
-                      call?.call_analysis?.user_sentiment
-                    )}
-                  </p>
 
-                  <div
-                    className={`${
-                      call?.call_analysis?.user_sentiment == "Neutral"
-                        ? "text-yellow-500"
-                        : call?.call_analysis?.user_sentiment == "Negative"
-                          ? "text-red-500"
-                          : call?.call_analysis?.user_sentiment == "Positive"
-                            ? "text-green-500"
-                            : "text-transparent"
-                    } text-xl`}
-                  >
-                    ●
-                  </div>
+              {/* Sentiment & Summary Card - Bottom Right */}
+              <div className="flex flex-col p-4 rounded-xl bg-slate-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-sm font-medium">Sentiment:</p>
+                  <span className={`text-sm font-semibold ${
+                    call?.call_analysis?.user_sentiment === "Positive" ? "text-green-600" :
+                    call?.call_analysis?.user_sentiment === "Negative" ? "text-red-500" : "text-yellow-600"
+                  }`}>
+                    {call?.call_analysis?.user_sentiment || "Unknown"}
+                  </span>
+                  <div className={`w-2 h-2 rounded-full ${
+                    call?.call_analysis?.user_sentiment === "Positive" ? "bg-green-500" :
+                    call?.call_analysis?.user_sentiment === "Negative" ? "bg-red-500" : "bg-yellow-500"
+                  }`} />
                 </div>
-                <div className="">
-                  <div className="font-medium  ">
-                    <span className="font-normal">Call Summary: </span>
-                    {call?.call_analysis?.call_summary === undefined ? (
-                      <Skeleton className="w-[200px] h-[20px]" />
-                    ) : (
-                      call?.call_analysis?.call_summary
-                    )}
-                  </div>
-                </div>
-                <p className="font-medium ">
-                  {call?.call_analysis?.call_completion_rating_reason}
+                <p className="text-xs text-gray-600 line-clamp-4">
+                  {call?.call_analysis?.call_summary || "No summary available"}
                 </p>
               </div>
             </div>
@@ -546,7 +552,7 @@ function CallInfo({
               <div
                 className="text-sm p-4 rounded-2xl leading-5 bg-slate-50"
                 // eslint-disable-next-line react/no-danger
-                dangerouslySetInnerHTML={{ __html: marked(transcript) }}
+                dangerouslySetInnerHTML={{ __html: marked(transcript) as string }}
               />
             </ScrollArea>
           </div>

@@ -76,6 +76,11 @@ function EditInterview({ interview }: EditInterviewProps) {
 
   const [isClicked, setIsClicked] = useState(false);
   const [isReEvaluating, setIsReEvaluating] = useState(false);
+  
+  // Calculate total weight for validation
+  const totalWeight = customMetrics.reduce((sum, m) => sum + m.weight, 0);
+  const weightsValid = customMetrics.length === 0 || totalWeight === 10;
+  const metricsHaveContent = customMetrics.every(m => m.title.trim() !== "" && m.description.trim() !== "");
 
   const endOfListRef = useRef<HTMLDivElement>(null);
   const prevQuestionLengthRef = useRef(questions.length);
@@ -242,12 +247,20 @@ function EditInterview({ interview }: EditInterviewProps) {
           </div>
           
           <div className="flex flex-row gap-3 items-center">
-            {metricsChanged && (
+            {/* Validation warning */}
+            {customMetrics.length > 0 && (!weightsValid || !metricsHaveContent) && (
+              <span className="text-xs text-red-600 bg-red-100 px-3 py-1 rounded-full">
+                {!weightsValid ? `Weights must sum to 10 (current: ${totalWeight})` : "Fill all metric fields"}
+              </span>
+            )}
+            
+            {/* Re-evaluate button - always visible when custom metrics exist */}
+            {customMetrics.length > 0 && (
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
-                      disabled={isClicked || isReEvaluating}
+                      disabled={isClicked || isReEvaluating || !weightsValid || !metricsHaveContent}
                       className="bg-indigo-600 hover:bg-indigo-800"
                       onClick={() => {
                         setIsClicked(true);
@@ -267,21 +280,34 @@ function EditInterview({ interview }: EditInterviewProps) {
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent className="bg-gray-700 text-white max-w-xs">
-                    <p>Save changes and re-evaluate all existing responses with the new custom metrics.</p>
+                    <p>Save changes and re-evaluate all existing responses with the custom metrics.</p>
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
             )}
-            <Button
-              disabled={isClicked || isReEvaluating}
-              className="bg-orange-600 hover:bg-orange-800"
-              onClick={() => {
-                setIsClicked(true);
-                onSave(false);
-              }}
-            >
-              Save <SaveIcon size={16} className="ml-2" />
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Button
+                      disabled={isClicked || isReEvaluating || (customMetrics.length > 0 && (!weightsValid || !metricsHaveContent))}
+                      className="bg-orange-600 hover:bg-orange-800"
+                      onClick={() => {
+                        setIsClicked(true);
+                        onSave(false);
+                      }}
+                    >
+                      Save <SaveIcon size={16} className="ml-2" />
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                {customMetrics.length > 0 && (!weightsValid || !metricsHaveContent) && (
+                  <TooltipContent className="bg-red-600 text-white max-w-xs">
+                    <p>{!weightsValid ? `Metric weights must sum to 10 (current: ${totalWeight})` : "Fill all metric titles and descriptions"}</p>
+                  </TooltipContent>
+                )}
+              </Tooltip>
+            </TooltipProvider>
             <AlertDialog>
               <AlertDialogTrigger>
                 <Button
