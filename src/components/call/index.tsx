@@ -71,6 +71,13 @@ type registerCallResponseType = {
     registerCallResponse: {
       call_id: string;
       access_token: string;
+      dynamic_data?: {
+        name: string;
+        mins: string;
+        objective: string;
+        job_context: string;
+        questions: string;
+      };
     };
   };
 };
@@ -314,6 +321,7 @@ function Call({ interview }: InterviewProps) {
     // Track accumulated text for current turn (matches Retell's turn-based display)
     let assistantTurnText = "";
     let userTurnText = "";
+    let lastSpeaker = "";  // Track who spoke last to detect turn changes
 
     vapiClient.on("call-start", () => {
       console.log("Call started (practice:", isPracticing, ")");
@@ -371,18 +379,13 @@ function Call({ interview }: InterviewProps) {
     vapiClient.on("speech-start", () => {
       console.log("🎤 SPEECH-START: Agent starting to talk");
       setActiveTurn("agent");
-      // Agent starting new turn → clear user's accumulated text
-      console.log("🧹 Clearing user display. Was:", userTurnText);
-      userTurnText = "";
-      setLastUserResponse("");
+      // Don't clear user text here - wait for user to speak again
     });
 
     vapiClient.on("speech-end", () => {
       console.log("🛑 SPEECH-END: Agent stopped talking");
       setActiveTurn("user");
-      // Agent finished turn → reset accumulator for next turn
-      console.log("🧹 Resetting assistant accumulator. Was:", assistantTurnText);
-      assistantTurnText = "";
+      // Don't reset accumulator here - it's handled in message event
     });
 
     vapiClient.on("error", (error) => {
@@ -393,39 +396,75 @@ function Call({ interview }: InterviewProps) {
     });
 
     vapiClient.on("message", (message: any) => {
-      // 🔍 DEBUG: Log all transcript messages to understand Vapi's behavior
+      // 🔍 DEBUG: Log all transcript messages
       if (message.type === "transcript") {
-        console.log("📝 VAPI TRANSCRIPT:", {
+        console.log("📝 TRANSCRIPT:", {
           role: message.role,
-          transcriptType: message.transcriptType,
+          type: message.transcriptType,
           text: message.transcript,
-          timestamp: new Date().toISOString().split('T')[1].substring(0, 12),
-          currentAssistantText: assistantTurnText,
-          currentUserText: userTurnText,
         });
       }
       
-      // Process FINAL transcripts sentence-by-sentence (matches Retell's behavior)
-      // Vapi sends: partial, partial, final for EACH sentence
-      // We accumulate finals to show the full turn (like Retell's update event)
-      if (message.type === "transcript" && message.transcriptType === "final") {
+      if (message.type === "transcript") {
         const transcriptText = message.transcript || "";
+        if (!transcriptText) return;
         
-        if (!transcriptText) return; // Skip empty messages
-        
+        // === ASSISTANT MESSAGES ===
         if (message.role === "assistant") {
-          // Accumulate complete sentences for assistant's turn
-          assistantTurnText += (assistantTurnText ? " " : "") + transcriptText;
-          console.log("✅ UPDATED ASSISTANT DISPLAY:", assistantTurnText);
-          setLastInterviewerResponse(assistantTurnText);
-        } else if (message.role === "user") {
-          // Accumulate complete sentences for user's turn
-          userTurnText += (userTurnText ? " " : "") + transcriptText;
-          console.log("✅ UPDATED USER DISPLAY:", userTurnText);
-          setLastUserResponse(userTurnText);
+          
+          // PARTIAL: Show live building of current sentence + previous sentences
+          if (message.transcriptType === "partial") {
+            // Clear old turn on FIRST partial of NEW turn
+            if (lastSpeaker !== "assistant") {
+              console.log("🔄 NEW AI TURN - clearing old AI text");
+              assistantTurnText = "";
+              lastSpeaker = "assistant";
+            }
+            // Show accumulated turn + current sentence building
+            const liveText = assistantTurnText 
+              ? assistantTurnText + " " + transcriptText 
+              : transcriptText;
+            console.log("⏩ LIVE AI:", liveText);
+            setLastInterviewerResponse(liveText);
+          }
+          
+          // FINAL: ACCUMULATE sentence into full turn
+          if (message.transcriptType === "final") {
+            // Add this sentence to the turn
+            assistantTurnText += (assistantTurnText ? " " : "") + transcriptText;
+            console.log("✅ FINAL AI (accumulated):", assistantTurnText);
+            setLastInterviewerResponse(assistantTurnText);
+          }
+        }
+        
+        // === USER MESSAGES ===
+        else if (message.role === "user") {
+          
+          // PARTIAL: Show live building of current sentence + previous sentences
+          if (message.transcriptType === "partial") {
+            // Clear old turn on FIRST partial of NEW turn
+            if (lastSpeaker !== "user") {
+              console.log("🔄 NEW USER TURN - clearing old user text");
+              userTurnText = "";
+              lastSpeaker = "user";
+            }
+            // Show accumulated turn + current sentence building
+            const liveText = userTurnText 
+              ? userTurnText + " " + transcriptText 
+              : transcriptText;
+            console.log("⏩ LIVE USER:", liveText);
+            setLastUserResponse(liveText);
+          }
+          
+          // FINAL: ACCUMULATE sentence into full turn
+          if (message.transcriptType === "final") {
+            // Add this sentence to the turn
+            userTurnText += (userTurnText ? " " : "") + transcriptText;
+            console.log("✅ FINAL USER (accumulated):", userTurnText);
+            setLastUserResponse(userTurnText);
+          }
         }
       }
-      // Ignore partial transcripts to prevent repetition
     });
 
     return () => {
