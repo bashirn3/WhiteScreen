@@ -48,21 +48,21 @@ export async function POST(req: NextRequest) {
         
       case "function-call":
         console.log("Function call received", payload);
-        break;
+      break;
         
       case "speech-update":
         console.log("Speech update received");
-        break;
+      break;
         
       case "status-update":
         console.log("Status update received", payload?.status);
-        break;
+      break;
         
-      default:
+    default:
         console.log("Received unknown Vapi event:", event);
-    }
+  }
 
-    // Acknowledge the receipt of the event
+  // Acknowledge the receipt of the event
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (error) {
     console.error("Error processing Vapi webhook:", error);

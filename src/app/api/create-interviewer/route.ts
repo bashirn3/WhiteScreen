@@ -16,10 +16,10 @@ export async function GET(res: NextRequest) {
     const lisaAssistant = await vapiClient.assistants.create({
       name: INTERVIEWERS.LISA.name,
       
-      // Model configuration (optimized for speed)
+      // Model configuration - Azure OpenAI
       model: {
-        provider: "openai",
-        model: "gpt-4o",
+        provider: "azure-openai" as any,  // TypeScript types are outdated, but runtime supports it
+        model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4o",
         temperature: 0.7,  // Faster, more focused responses
         messages: [
           {
@@ -29,24 +29,21 @@ export async function GET(res: NextRequest) {
         ],
       },
       
-      // Voice configuration (optimized for streaming speed)
+      // Voice configuration - Azure TTS
       voice: {
-        provider: "11labs" as const,
-        voiceId: INTERVIEWERS.LISA.voiceId,
-        stability: 0.5,
-        similarityBoost: 0.75,
-        optimizeStreamingLatency: 4,  // Max streaming optimization
+        provider: "azure" as const,
+        voiceId: INTERVIEWERS.LISA.voiceId,  // en-US-JennyNeural
       },
       
-      // First message mode - let model generate greeting from system prompt
-      firstMessageMode: "assistant-speaks-first-with-model-generated-message",
+      // Static first message for instant call start (no LLM delay)
+      firstMessage: "Hello! Thanks so much for joining me today. How are you doing?",
+      firstMessageMode: "assistant-speaks-first",
       
-      // Transcription settings (upgraded to latest fastest model)
+      // Transcription settings - Azure STT
       transcriber: {
-        provider: "deepgram",
-        model: "nova-3",  // Latest, fastest version
+        provider: "azure",
         language: "en-US",
-      },
+      } as any,  // TypeScript types are outdated, but runtime supports it
       
       // Call behavior (matches original Retell end_call tool)
       endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
@@ -54,6 +51,18 @@ export async function GET(res: NextRequest) {
       
       // Backchannel disabled (matches original Retell setting)
       backgroundSound: "off",
+      
+      // Controls how long assistant waits before speaking (prevents interrupting)
+      startSpeakingPlan: {
+        waitSeconds: 1,  // Give user time to think (vs Retell's 0.4s)
+      },
+      
+      // Controls when assistant stops talking if user starts speaking
+      stopSpeakingPlan: {
+        numWords: 2,  // Stop if user says 2+ words
+        voiceSeconds: 0.5,  // Detect user voice for 0.5s before stopping
+        backoffSeconds: 1,  // Wait 1s before starting again
+      },
     });
 
     const newInterviewer = await InterviewerService.createInterviewer({
@@ -72,10 +81,10 @@ export async function GET(res: NextRequest) {
     const bobAssistant = await vapiClient.assistants.create({
       name: INTERVIEWERS.BOB.name,
       
-      // Model configuration (optimized for speed)
+      // Model configuration - Azure OpenAI
       model: {
-        provider: "openai",
-        model: "gpt-4o",
+        provider: "azure-openai" as any,  // TypeScript types are outdated, but runtime supports it
+        model: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || "gpt-4o",
         temperature: 0.7,  // Faster, more focused responses
         messages: [
           {
@@ -85,30 +94,39 @@ export async function GET(res: NextRequest) {
         ],
       },
       
-      // Voice configuration (optimized for streaming speed)
+      // Voice configuration - Azure TTS
       voice: {
-        provider: "11labs" as const,
-        voiceId: INTERVIEWERS.BOB.voiceId,
-        stability: 0.5,
-        similarityBoost: 0.75,
-        optimizeStreamingLatency: 4,  // Max streaming optimization
+        provider: "azure" as const,
+        voiceId: INTERVIEWERS.BOB.voiceId,  // en-US-GuyNeural
       },
       
-      // First message mode - let model generate greeting from system prompt
-      firstMessageMode: "assistant-speaks-first-with-model-generated-message",
+      // Static first message for instant call start (no LLM delay)
+      firstMessage: "Hi there! Thanks for taking the time to chat with me today. How's everything going?",
+      firstMessageMode: "assistant-speaks-first",
       
-      // Transcription settings (upgraded to latest fastest model)
+      // Transcription settings - Azure STT
       transcriber: {
-        provider: "deepgram",
-        model: "nova-3",  // Latest, fastest version
+        provider: "azure",
         language: "en-US",
-      },
+      } as any,  // TypeScript types are outdated, but runtime supports it
       
       endCallPhrases: ["goodbye", "bye", "have a nice day", "thank you bye"],
       maxDurationSeconds: 3600,
       
       // Backchannel disabled (matches original Retell setting)
       backgroundSound: "off",
+      
+      // Controls how long assistant waits before speaking (prevents interrupting)
+      startSpeakingPlan: {
+        waitSeconds: 1,  // Give user time to think (vs Retell's 0.4s)
+      },
+      
+      // Controls when assistant stops talking if user starts speaking
+      stopSpeakingPlan: {
+        numWords: 2,  // Stop if user says 2+ words
+        voiceSeconds: 0.5,  // Detect user voice for 0.5s before stopping
+        backoffSeconds: 1,  // Wait 1s before starting again
+      },
     });
 
     const newSecondInterviewer = await InterviewerService.createInterviewer({
