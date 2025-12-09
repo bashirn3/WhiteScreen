@@ -19,6 +19,10 @@ import {
   ChevronDownIcon,
   ChevronUpIcon,
   Edit2,
+  FileUp,
+  FileText,
+  Loader2,
+  X,
 } from "lucide-react";
 import React, { useState, useEffect, useRef } from "react";
 import { Card, CardHeader, CardTitle } from "../ui/card";
@@ -103,10 +107,28 @@ function Call({ interview }: InterviewProps) {
   const [name, setName] = useState<string>("");
   const [linkedinProfile, setLinkedinProfile] = useState<string>("");
   const [githubProfile, setGithubProfile] = useState<string>("");
+  
+  // CV Upload State
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [cvParsedText, setCvParsedText] = useState<string>("");
+  const [cvStorageUrl, setCvStorageUrl] = useState<string>("");
+  const [isParsingCv, setIsParsingCv] = useState(false);
+  const cvInputRef = useRef<HTMLInputElement>(null);
   const [isValidEmail, setIsValidEmail] = useState<boolean>(false);
   const [isOldUser, setIsOldUser] = useState<boolean>(false);
   const [callId, setCallId] = useState<string>("");
-  const { tabSwitchCount } = useTabSwitchPrevention();
+  const { tabSwitchCount, tabSwitchEvents, resetTracking } = useTabSwitchPrevention({ 
+    isTracking: isCalling // Only track during active call
+  });
+  
+  // Use refs to track latest values for closures
+  const tabSwitchCountRef = useRef(tabSwitchCount);
+  const tabSwitchEventsRef = useRef(tabSwitchEvents);
+  
+  useEffect(() => {
+    tabSwitchCountRef.current = tabSwitchCount;
+    tabSwitchEventsRef.current = tabSwitchEvents;
+  }, [tabSwitchCount, tabSwitchEvents]);
   const [isFeedbackSubmitted, setIsFeedbackSubmitted] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [interviewerImg, setInterviewerImg] = useState("");
@@ -346,10 +368,15 @@ function Call({ interview }: InterviewProps) {
           githubUrl
         ].filter(Boolean).join(', ');
         
+        // Use refs to get latest tab switch data
+        const currentTabSwitchCount = tabSwitchCountRef.current;
+        const currentTabSwitchEvents = tabSwitchEventsRef.current;
+        
         await ResponseService.saveResponse(
           {
             is_ended: true,
-            tab_switch_count: tabSwitchCount,
+            tab_switch_count: currentTabSwitchCount,
+            tab_switch_events: currentTabSwitchEvents.length > 0 ? currentTabSwitchEvents : null,
             interview_id: interview.id,
             email,
             name,
@@ -358,7 +385,8 @@ function Call({ interview }: InterviewProps) {
           },
           callId,
         );
-        console.log("[persistEnd] Persisted successfully for callId:", callId);
+        
+        console.log("[persistEnd] Persisted successfully for callId:", callId, "Tab switches:", currentTabSwitchCount, "Events:", currentTabSwitchEvents);
       } catch (error) {
         console.error("[persistEnd] Failed to persist end:", error);
       }
@@ -583,12 +611,27 @@ function Call({ interview }: InterviewProps) {
             githubUrl
           ].filter(Boolean).join(', ');
           
+          // Build details object with CV info if available
+          const detailsObj: any = {};
+          if (cvParsedText) {
+            detailsObj.attached_cv = {
+              text: cvParsedText,
+              url: cvStorageUrl || null,
+              fileName: cvFile?.name || null,
+            };
+            console.log("[executeStartConversation] CV attached to response:", {
+              fileName: cvFile?.name,
+              textLength: cvParsedText.length,
+              hasUrl: !!cvStorageUrl
+            });
+          }
+          
           newResponseId = await createResponse({
             interview_id: interview.id,
             call_id: currentCallId,
             email: userEmail,
             name: userName,
-            cv_url: null, // No CV upload in Polymet flow
+            details: Object.keys(detailsObj).length > 0 ? detailsObj : null,
             profile_id: profileIds || null,
             profile_type: session?.user?.linkedinId ? 'linkedin' : null,
           });
@@ -667,6 +710,65 @@ function Call({ interview }: InterviewProps) {
         if (practiceMode) { setIsLoadingPractice(false); } else { setIsLoadingInterview(false); }
     }
   };
+
+  // --- CV Upload Handler ---
+  const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Reset input value so same file can be re-selected
+    e.target.value = '';
+    
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File size must be less than 10MB");
+      return;
+    }
+    
+    // Validate file type
+    const validTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'text/plain'];
+    const validExtensions = ['.pdf', '.doc', '.docx', '.txt'];
+    const fileExt = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    
+    if (!validTypes.includes(file.type) && !validExtensions.includes(fileExt)) {
+      toast.error("Please upload a PDF, DOC, DOCX, or TXT file");
+      return;
+    }
+    
+    setCvFile(file);
+    setIsParsingCv(true);
+    
+    try {
+      // Create form data for upload
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('interviewId', interview?.id || '');
+      
+      // Upload and parse CV
+      const response = await axios.post('/api/upload-candidate-cv', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      if (response.data.success) {
+        setCvParsedText(response.data.parsedText || '');
+        setCvStorageUrl(response.data.storageUrl || '');
+        toast.success("CV uploaded successfully!");
+      } else {
+        throw new Error(response.data.error || "Failed to process CV");
+      }
+    } catch (error: any) {
+      console.error("CV upload error:", error);
+      toast.error(error?.response?.data?.error || "Failed to upload CV");
+      setCvFile(null);
+      setCvParsedText("");
+      setCvStorageUrl("");
+    } finally {
+      setIsParsingCv(false);
+    }
+  };
+  // --- End CV Upload Handler ---
 
   // --- Part 1: Prepare to start (called by buttons) ---
   const prepareToStartConversation = async (practiceMode: boolean) => {
@@ -751,10 +853,15 @@ function Call({ interview }: InterviewProps) {
             githubUrl
           ].filter(Boolean).join(', ');
           
+          // Use refs to get latest tab switch data
+          const currentTabSwitchCount = tabSwitchCountRef.current;
+          const currentTabSwitchEvents = tabSwitchEventsRef.current;
+          
           await ResponseService.saveResponse(
             {
               is_ended: true,
-              tab_switch_count: tabSwitchCount,
+              tab_switch_count: currentTabSwitchCount,
+              tab_switch_events: currentTabSwitchEvents.length > 0 ? currentTabSwitchEvents : null,
               // also persist primary identifiers in case initial insert failed
               interview_id: interview.id,
               email,
@@ -764,7 +871,7 @@ function Call({ interview }: InterviewProps) {
             },
             callId,
           );
-          console.log("Response saved successfully for callId:", callId);
+          console.log("Response saved successfully for callId:", callId, "Tab switches:", currentTabSwitchCount);
         } catch (error) {
            console.error("Failed to save response:", error);
         }
@@ -1228,58 +1335,94 @@ function Call({ interview }: InterviewProps) {
                         </div>
                       )}
 
-                    {/* Step 3: Social Profiles */}
+                    {/* Step 3: CV Upload */}
                     {currentStep === 3 && (
                       <div className="space-y-8 text-center">
                         <div className="space-y-4">
                           <h2 className="text-4xl font-bold text-gray-900">
-                            Social Profiles
+                            Upload Your CV
                           </h2>
                           <p className="text-lg text-gray-600">
-                            Add your professional profiles (optional)
+                            Attach your resume to enhance your evaluation (optional)
                           </p>
                         </div>
                         <div className="max-w-md mx-auto space-y-4">
-                          {/* LinkedIn */}
-                          <div>
-                            <label className="text-sm font-medium text-gray-700 block mb-2 text-left">
-                              LinkedIn Profile
-                          </label>
-                            <div className="flex items-center bg-gray-50 rounded-xl border border-gray-200 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent hover:border-gray-300 transition-colors">
-                              <div className="flex items-center px-4 py-4 bg-gray-100 border-r border-gray-200">
-                             
-                                <span className="text-gray-700 font-medium text-lg">
-                                  linkedin.com/in/
-                                </span>
+                          {/* CV Upload Area */}
+                          <input
+                            type="file"
+                            ref={cvInputRef}
+                            accept=".pdf,.doc,.docx,.txt"
+                            className="hidden"
+                            onChange={handleCvUpload}
+                          />
+                          
+                          {!cvFile ? (
+                            <div
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                cvInputRef.current?.click();
+                              }}
+                              className="border-2 border-dashed border-gray-300 rounded-2xl p-8 cursor-pointer hover:border-orange-400 hover:bg-orange-50/50 transition-all duration-300 group"
+                            >
+                              <div className="flex flex-col items-center gap-3">
+                                <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center group-hover:bg-orange-200 transition-colors">
+                                  <FileUp className="h-8 w-8 text-orange-600" />
+                                </div>
+                                <div>
+                                  <p className="font-semibold text-gray-800">
+                                    Click to upload your CV
+                                  </p>
+                                  <p className="text-sm text-gray-500 mt-1">
+                                    PDF, DOC, DOCX, or TXT (max 10MB)
+                                  </p>
+                                </div>
                               </div>
-                              <Input
-                                placeholder="your-profile"
-                                value={linkedinProfile}
-                                onChange={(e) => setLinkedinProfile(e.target.value)}
-                                className="border-0 bg-transparent py-4 text-lg focus:ring-0 flex-1 rounded-none"
-                              />
-                         </div>
-                      </div>
-                          {/* GitHub */}
-                          <div>
-                            <label className="text-sm font-medium text-gray-700 block mb-2 text-left">
-                              GitHub Profile
-                            </label>
-                            <div className="flex items-center bg-gray-50 rounded-xl border border-gray-200 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent hover:border-gray-300 transition-colors">
-                              <div className="flex items-center px-4 py-4 bg-gray-100 border-r border-gray-200">
-                                <GithubIcon className="h-6 w-6 text-gray-600 mr-2" />
-                                <span className="text-gray-700 font-medium text-lg">
-                                  github.com/
-                                </span>
-                              </div>
-                              <Input
-                                placeholder="username"
-                                value={githubProfile}
-                                onChange={(e) => setGithubProfile(e.target.value)}
-                                className="border-0 bg-transparent py-4 text-lg focus:ring-0 flex-1 rounded-none"
-                              />
                             </div>
-                          </div>
+                          ) : (
+                            <div className="border-2 border-green-300 bg-green-50/50 rounded-2xl p-4">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                  {isParsingCv ? (
+                                    <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center">
+                                      <Loader2 className="h-5 w-5 text-orange-600 animate-spin" />
+                                    </div>
+                                  ) : (
+                                    <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                                      <CheckIcon className="h-5 w-5 text-green-600" />
+                                    </div>
+                                  )}
+                                  <div className="text-left">
+                                    <p className="font-medium text-gray-800 truncate max-w-[220px] text-sm">
+                                      {cvFile.name}
+                                    </p>
+                                    <p className="text-xs text-green-600">
+                                      {isParsingCv ? "Processing..." : "CV attached successfully"}
+                                    </p>
+                                  </div>
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 rounded-full hover:bg-red-100 hover:text-red-600"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    setCvFile(null);
+                                    setCvParsedText("");
+                                    setCvStorageUrl("");
+                                  }}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                          
+                          <p className="text-sm text-gray-500 mt-2">
+                            Your CV will be used alongside the interview to provide a comprehensive evaluation
+                          </p>
                         </div>
                     </div>
                   )}

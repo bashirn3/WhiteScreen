@@ -91,7 +91,7 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
   const [tableData, setTableData] = useState<TableData[]>([]);
 
   const prepareTableData = (responses: Response[]): TableData[] => {
-    return responses.map((response) => {
+    return responses.map((response: any) => {
       // Build custom metric scores as flattened keys
       const customMetricScores: CustomMetricScoreData = {};
       if (response.analytics?.customMetrics) {
@@ -99,6 +99,11 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
           customMetricScores[`metric_${metricScore.metricId}`] = metricScore.score;
         });
       }
+
+      // Determine if this is a CV upload or interview with attached CV
+      const isCVUpload = response.details?.source === "cv_upload";
+      const attachedCv = response.details?.attached_cv;
+      const hasAttachedCV = !isCVUpload && Boolean(attachedCv?.text);
 
       return {
         call_id: response.call_id,
@@ -111,6 +116,9 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
           response.analytics?.softSkillSummary ||
           response.details?.call_analysis?.call_summary ||
           "No summary available",
+        cv_url: attachedCv?.url || response.cv_url,
+        isCVUpload,
+        hasAttachedCV,
         ...customMetricScores,
       };
     });

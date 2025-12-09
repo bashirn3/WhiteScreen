@@ -218,15 +218,20 @@ function Interviews() {
                   </div>
                 </Modal>
               )}
-              {interviews.map((item) => (
-                <InterviewCard
-                  id={item.id}
-                  interviewerId={item.interviewer_id}
-                  key={item.id}
-                  name={item.name}
-                  url={item.url ?? ""}
-                  readableSlug={item.readable_slug}
-                />
+              {interviews.map((item, index) => (
+                <div 
+                  key={item.id} 
+                  className="animate-slideInUp"
+                  style={{ animationDelay: `${Math.min(index * 0.05, 0.3)}s` }}
+                >
+                  <InterviewCard
+                    id={item.id}
+                    interviewerId={item.interviewer_id}
+                    name={item.name}
+                    url={item.url ?? ""}
+                    readableSlug={item.readable_slug}
+                  />
+                </div>
               ))}
             </>
           )}

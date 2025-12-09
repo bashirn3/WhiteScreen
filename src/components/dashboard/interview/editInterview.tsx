@@ -362,7 +362,7 @@ function EditInterview({ interview }: EditInterviewProps) {
           </TabsList>
 
           {/* Details Tab */}
-          <TabsContent value="details" className="flex-1 overflow-auto mt-4 pr-4">
+          <TabsContent value="details" className="flex-1 overflow-auto mt-4 pr-4 animate-fadeIn">
             <div className="space-y-4">
               <div>
                 <p className="mb-1 font-medium">
@@ -516,7 +516,7 @@ function EditInterview({ interview }: EditInterviewProps) {
           </TabsContent>
 
           {/* Questions Tab */}
-          <TabsContent value="questions" className="flex-1 overflow-hidden mt-4">
+          <TabsContent value="questions" className="flex-1 overflow-hidden mt-4 animate-fadeIn">
             <div className="h-full flex flex-col">
               <p className="mb-2 font-medium">Interview Questions</p>
               <ScrollArea className="flex-1 p-3 bg-slate-100 rounded-md">
@@ -547,7 +547,7 @@ function EditInterview({ interview }: EditInterviewProps) {
           </TabsContent>
 
           {/* Custom Metrics Tab */}
-          <TabsContent value="metrics" className="flex-1 overflow-hidden mt-4">
+          <TabsContent value="metrics" className="flex-1 overflow-hidden mt-4 animate-fadeIn">
             <div className="h-full flex flex-col">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">

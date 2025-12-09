@@ -14,15 +14,24 @@ import {
   getSortedRowModel,
   SortingState,
   useReactTable,
+  VisibilityState,
 } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, ExternalLink, Scale, Info } from "lucide-react";
+import { ArrowUpDown, ExternalLink, Scale, Info, FileText, Settings2 } from "lucide-react";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
   TooltipProvider,
 } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CustomMetric } from "@/types/interview";
 import { CustomMetricScore } from "@/types/response";
 
@@ -39,6 +48,9 @@ export type TableData = {
   weightedOverallScore?: number;
   callSummary: string;
   customMetrics?: CustomMetricScore[];
+  cv_url?: string | null;
+  isCVUpload?: boolean; // true for CV-only uploads (no interview)
+  hasAttachedCV?: boolean; // true for interviews with attached CV
 } & CustomMetricScoreData;
 
 interface DataTableProps {
@@ -54,6 +66,28 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
   const [sorting, setSorting] = useState<SortingState>([
     { id: hasCustomMetrics ? "weightedOverallScore" : "overallScore", desc: true },
   ]);
+
+  // Default column visibility: name, weighted score (if exists), overall score, summary visible
+  const defaultVisibility: VisibilityState = useMemo(() => {
+    const visibility: VisibilityState = {
+      name: true,
+      overallScore: true,
+      communicationScore: false, // Hidden by default
+      callSummary: true,
+    };
+    
+    // If custom metrics exist, show weighted score and hide individual metrics by default
+    if (hasCustomMetrics) {
+      visibility.weightedOverallScore = true;
+      customMetricDefinitions.forEach((metric) => {
+        visibility[`metric_${metric.id}`] = false;
+      });
+    }
+    
+    return visibility;
+  }, [hasCustomMetrics, customMetricDefinitions]);
+
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(defaultVisibility);
 
   const customSortingFn = (a: any, b: any) => {
     if (a === null || a === undefined) {
@@ -111,6 +145,31 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
               </Tooltip>
             </TooltipProvider>
             <span className="truncate">{row.getValue("name")}</span>
+            {/* CV Badge for interviews with attached CV */}
+            {row.original.hasAttachedCV && !row.original.isCVUpload && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="ml-2 px-1.5 py-0.5 bg-orange-100 text-orange-700 text-[10px] font-semibold rounded flex items-center gap-1">
+                      <FileText size={10} />
+                      CV
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="top"
+                    className="bg-gray-700 text-white font-normal"
+                  >
+                    This candidate attached a CV
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
+            {/* CV Upload badge for CV-only entries */}
+            {row.original.isCVUpload && (
+              <span className="ml-2 px-1.5 py-0.5 bg-purple-100 text-purple-700 text-[10px] font-semibold rounded">
+                CV Only
+              </span>
+            )}
           </div>
         ),
         sortingFn: (rowA, rowB, columnId) => {
@@ -324,14 +383,67 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
     columns,
     state: {
       sorting,
+      columnVisibility,
     },
     onSortingChange: setSorting,
+    onColumnVisibilityChange: setColumnVisibility,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
   });
 
+  // Column display names for the dropdown
+  const getColumnDisplayName = (columnId: string): string => {
+    switch (columnId) {
+      case "name": return "Name";
+      case "weightedOverallScore": return "Weighted Score";
+      case "overallScore": return "Overall Score";
+      case "communicationScore": return "Communication";
+      case "callSummary": return "Summary";
+      default:
+        // For custom metrics, find the title
+        if (columnId.startsWith("metric_")) {
+          const metricId = columnId.replace("metric_", "");
+          const metric = customMetricDefinitions.find(m => m.id === metricId);
+          return metric?.title || columnId;
+        }
+        return columnId;
+    }
+  };
+
   return (
     <div className="rounded-md border">
+      {/* Column visibility controls */}
+      <div className="flex items-center justify-between p-2 border-b bg-slate-50">
+        <span className="text-sm text-gray-600 font-medium">
+          {data.length} candidate{data.length !== 1 ? 's' : ''}
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2">
+              <Settings2 size={14} />
+              Columns
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Show/Hide Columns</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {table.getAllColumns()
+              .filter((column) => column.getCanHide())
+              .map((column) => {
+                return (
+                  <DropdownMenuCheckboxItem
+                    key={column.id}
+                    className="capitalize"
+                    checked={column.getIsVisible()}
+                    onCheckedChange={(value: boolean) => column.toggleVisibility(!!value)}
+                  >
+                    {getColumnDisplayName(column.id)}
+                  </DropdownMenuCheckboxItem>
+                );
+              })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <Table>
         <TableHeader>
           {table.getHeaderGroups().map((headerGroup) => (

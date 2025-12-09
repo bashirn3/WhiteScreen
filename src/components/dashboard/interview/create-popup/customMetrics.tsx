@@ -201,7 +201,7 @@ function CustomMetricsPopup({ interviewData, setInterviewData, logoFile, onBack,
   );
 
   return (
-    <div className="w-[38rem] h-[35rem] flex flex-col">
+    <div className="w-full max-w-[38rem] min-w-[320px] min-h-[30rem] flex flex-col animate-slideInRight">
       {/* Header */}
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <button

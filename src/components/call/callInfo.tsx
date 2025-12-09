@@ -67,8 +67,11 @@ function CallInfo({
   const [candidateStatus, setCandidateStatus] = useState<string>("");
   const [interviewId, setInterviewId] = useState<string>("");
   const [tabSwitchCount, setTabSwitchCount] = useState<number>();
+  const [tabSwitchEvents, setTabSwitchEvents] = useState<Array<{ timestamp: number; duration: number }>>([]);
   const [isCVUpload, setIsCVUpload] = useState<boolean>(false);
   const [cvFileName, setCvFileName] = useState<string>("");
+  const [cvUrl, setCvUrl] = useState<string | null>(null);
+  const [hasAttachedCV, setHasAttachedCV] = useState<boolean>(false);
   const { getInterviewById } = useInterviews();
 
   useEffect(() => {
@@ -80,6 +83,11 @@ function CallInfo({
 
       try {
         const response = await axios.post("/api/get-call", { id: call_id });
+        console.log("[CallInfo] get-call response:", {
+          hasCallResponse: !!response.data.callResponse,
+          hasAttachedCv: !!response.data.callResponse?.attached_cv,
+          attachedCvFileName: response.data.callResponse?.attached_cv?.fileName
+        });
         setCall(response.data.callResponse);
         setAnalytics(response.data.analytics);
       } catch (error) {
@@ -103,14 +111,32 @@ function CallInfo({
         setCandidateStatus(response.candidate_status);
         setInterviewId(response.interview_id);
         setTabSwitchCount(response.tab_switch_count);
+        setTabSwitchEvents(response.tab_switch_events || []);
         
-        // Check if this is a CV upload
+        // Check if this is a CV upload or interview with attached CV
         if (response.details?.source === "cv_upload") {
           setIsCVUpload(true);
           setCvFileName(response.details.fileName || "");
+          setCvUrl(response.cv_url || null); // Also get CV URL for CV-only uploads
+          setHasAttachedCV(false);
         } else {
           setIsCVUpload(false);
-          setCvFileName("");
+          // Check for attached CV in interview response (stored in details.attached_cv)
+          const attachedCv = response.details?.attached_cv;
+          console.log("[CallInfo] Checking for attached CV:", { 
+            hasAttachedCv: !!attachedCv,
+            hasText: !!attachedCv?.text,
+            fileName: attachedCv?.fileName
+          });
+          if (attachedCv?.text) {
+            setHasAttachedCV(true);
+            setCvUrl(attachedCv.url || null);
+            setCvFileName(attachedCv.fileName || "");
+          } else {
+            setHasAttachedCV(false);
+            setCvUrl(null);
+            setCvFileName("");
+          }
         }
       } catch (error) {
         console.error(error);
@@ -139,8 +165,11 @@ function CallInfo({
       return updatedTranscript;
     };
 
-    if (call && name && call.transcript) {
-      setTranscript(replaceAgentAndUser(call.transcript as string, name));
+    if (call && call.transcript) {
+      setTranscript(replaceAgentAndUser(call.transcript as string, name || "Candidate"));
+    } else if (call && !call.transcript && call?.details?.source !== "cv_upload") {
+      // Interview without transcript - show placeholder
+      setTranscript("*No transcript available for this interview.*");
     } else if (call?.details?.source === "cv_upload") {
       // For CV uploads, show formatted CV analysis instead of raw text
       const cvAnalysisDisplay = (analytics as any)?.cvAnalysis?.cvAnalysisDisplay;
@@ -282,11 +311,11 @@ function CallInfo({
   return (
     <div className="h-screen z-[10] mx-2 mb-[100px] overflow-y-scroll">
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center h-[75%] w-full">
-          <LoaderWithText />
+        <div className="flex flex-col items-center justify-center h-[75%] w-full animate-fadeIn">
+          <LoaderWithText text="Loading candidate..." />
         </div>
       ) : (
-        <>
+        <div className="animate-fadeIn">
           <div className="bg-slate-200 rounded-2xl min-h-[120px] p-4 px-5 y-3">
             <div className="flex flex-col justify-between bt-2">
               {/* <p className="font-semibold my-2 ml-2">
@@ -304,9 +333,49 @@ function CallInfo({
                     <p className="text-sm font-semibold">Back to Summary</p>
                   </div>
                   {tabSwitchCount !== undefined && tabSwitchCount !== null && tabSwitchCount > 0 && (
-                    <p className="text-sm font-semibold text-red-500 bg-red-200 rounded-sm px-2 py-1">
-                      Tab Switching Detected ({tabSwitchCount}x)
-                    </p>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-1.5 text-sm font-semibold text-red-600 bg-red-100 border border-red-200 rounded-md px-2.5 py-1 cursor-help">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                              <line x1="12" y1="9" x2="12" y2="13"/>
+                              <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            Tab Switch ({tabSwitchCount}x)
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent 
+                          side="bottom" 
+                          className="bg-gray-800 text-white max-w-sm p-3"
+                        >
+                          <p className="font-semibold mb-2">⚠️ Tab Switching Detected</p>
+                          <p className="text-sm text-gray-300 mb-2">
+                            {tabSwitchCount} tab switch{tabSwitchCount > 1 ? 'es' : ''} during the interview.
+                          </p>
+                          {tabSwitchEvents.length > 0 && (
+                            <div className="border-t border-gray-600 pt-2 mt-2">
+                              <p className="text-xs text-gray-400 mb-1.5 font-medium">Timestamps:</p>
+                              <div className="space-y-1 max-h-32 overflow-y-auto">
+                                {tabSwitchEvents.map((event, idx) => (
+                                  <div key={idx} className="flex justify-between text-xs">
+                                    <span className="text-gray-300">
+                                      #{idx + 1} - {new Date(event.timestamp).toLocaleTimeString()}
+                                    </span>
+                                    <span className="text-gray-400">
+                                      ({Math.round(event.duration / 1000)}s away)
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-600">
+                            Tracked only during active call
+                          </p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   )}
                 </div>
               </div>
@@ -412,34 +481,66 @@ function CallInfo({
                 {/* Show different content based on whether this is a CV upload or interview */}
                 {isCVUpload ? (
                   <div className="flex flex-col mt-3">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-green-600" />
-                      <p className="font-semibold text-green-700">CV Analysis</p>
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
-                        Resume-based evaluation
-                      </span>
+                    <p className="font-semibold">CV Document</p>
+                    <div className="flex flex-row gap-3 mt-2 items-center">
+                      <span className="text-sm text-gray-600">{cvFileName || "Uploaded CV"}</span>
+                      {cvUrl && (
+                        <a
+                          className="text-purple-500 hover:text-purple-700 transition-colors"
+                          href={cvUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Download CV"
+                          title="Download CV"
+                        >
+                          <DownloadIcon size={20} />
+                        </a>
+                      )}
                     </div>
-                    {cvFileName && (
-                      <p className="text-sm text-gray-600 mt-2">
-                        Source file: {cvFileName}
-                      </p>
-                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col mt-3">
                     <p className="font-semibold">Interview Recording</p>
-                    <div className="flex flex-row gap-3 mt-2">
-                      {call?.recording_url && (
-                        <ReactAudioPlayer src={call?.recording_url} controls />
+                    <div className="flex flex-row gap-3 mt-2 items-center">
+                      {call?.recording_url ? (
+                        <>
+                          <ReactAudioPlayer src={call.recording_url} controls />
+                          <a
+                            className="my-auto text-gray-600 hover:text-gray-800 transition-colors"
+                            href={call.recording_url}
+                            download=""
+                            aria-label="Download Recording"
+                            title="Download Recording"
+                          >
+                            <DownloadIcon size={20} />
+                          </a>
+                        </>
+                      ) : (
+                        <span className="text-sm text-gray-500 italic">
+                          No recording available
+                        </span>
                       )}
-                      <a
-                        className="my-auto"
-                        href={call?.recording_url}
-                        download=""
-                        aria-label="Download"
-                      >
-                        <DownloadIcon size={20} />
-                      </a>
+                      {/* CV Download - same style as recording download */}
+                      {hasAttachedCV && cvUrl && (
+                        <a
+                          className="my-auto text-orange-500 hover:text-orange-700 transition-colors"
+                          href={cvUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label="Download CV"
+                          title="Download CV"
+                        >
+                          <FileText size={20} />
+                        </a>
+                      )}
+                      {hasAttachedCV && !cvUrl && (
+                        <span 
+                          className="my-auto text-orange-400 cursor-help"
+                          title="CV content used in evaluation (file not stored)"
+                        >
+                          <FileText size={20} />
+                        </span>
+                      )}
                     </div>
                   </div>
                 )}
@@ -649,7 +750,7 @@ function CallInfo({
               />
             </ScrollArea>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

@@ -1,20 +1,69 @@
 .loader {
+  --color1: #f97316;
+  /* Orange-500 */
+  --color2: #e5e7eb;
+  /* Gray-200 */
   width: 20px;
   height: 20px;
-  border-radius: 50%;
-  display: inline-block;
-  border-top: 3px solid white;
-  border-right: 3px solid transparent;
-  box-sizing: border-box;
-  animation: rotation 1s linear infinite;
+  position: relative;
+  animation: spin 4000ms infinite linear;
 }
 
-@keyframes rotation {
+.loader:before,
+.loader:after {
+  content: "";
+  position: absolute;
+  background: var(--color1);
+  animation: squeeze 1500ms infinite ease-in-out;
+  border-radius: 2px;
+}
+
+.loader:after {
+  background: var(--color2);
+  animation-delay: -0.5s;
+  border-radius: 50px;
+}
+
+@keyframes squeeze {
   0% {
-    transform: rotate(0deg);
+    inset: 0 55% 55% 0;
+  }
+
+  12.5% {
+    inset: 0 55% 0 0;
+  }
+
+  25% {
+    inset: 55% 55% 0 0;
+  }
+
+  37.5% {
+    inset: 55% 0 0 0;
+  }
+
+  50% {
+    inset: 55% 0 0 55%;
+  }
+
+  62.5% {
+    inset: 0 0 0 55%;
+  }
+
+  75% {
+    inset: 0 0 55% 55%;
+  }
+
+  87.5% {
+    inset: 0 0 55% 0;
   }
 
   100% {
-    transform: rotate(360deg);
+    inset: 0 55% 55% 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(-360deg);
   }
 }

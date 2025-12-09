@@ -100,7 +100,7 @@ function CreateInterviewModal({ open, setOpen }: Props) {
   return (
     <>
       {step === "loading" ? (
-        <div className="w-[38rem] h-[35rem]">
+        <div className="w-full max-w-[38rem] min-w-[320px] h-[28rem] flex items-center justify-center">
           <LoaderWithLogo />
         </div>
       ) : step === "details" ? (

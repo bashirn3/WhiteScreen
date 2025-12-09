@@ -85,16 +85,30 @@ export const getInterviewAnalyticsPrompt = (
     ? `\n\nCustom Metric IDs for reference:\n${customMetrics!.map(m => `- "${m.title}": ID = "${m.id}"`).join("\n")}\n`
     : "";
 
-  return `Analyse the following interview transcript and provide structured feedback:
+  // Check if CV is attached (transcript will contain === ATTACHED CV === marker)
+  const hasCVAttached = interviewTranscript.includes("=== ATTACHED CV ===");
+  const cvInstructions = hasCVAttached 
+    ? `
 
+⚠️ IMPORTANT: This candidate has an ATTACHED CV included above. You MUST use BOTH the CV content AND the interview transcript to evaluate the candidate:
+- Use the CV to assess qualifications, experience, skills, and background
+- Use the interview transcript to assess communication, responses, and interview performance
+- For custom metrics, consider evidence from BOTH sources
+- If a metric can be evaluated from the CV (e.g., technical skills, experience), use that information even if not explicitly discussed in the interview
+- Give higher scores if the CV provides strong evidence for a metric, even if the interview didn't cover it directly
+`
+    : "";
+
+  return `Analyse the following interview content and provide structured feedback:
+${cvInstructions}
 ###
-Transcript: ${interviewTranscript}
+Content: ${interviewTranscript}
 
 Main Interview Questions:
 ${mainInterviewQuestions}
 ${metricIdsReference}
 
-Based on this transcript and the provided main interview questions, generate the following analytics in JSON format:
+Based on ${hasCVAttached ? "the CV content, interview transcript," : "the transcript"} and the provided main interview questions, generate the following analytics in JSON format:
 1. Overall Score (0-100) and Overall Feedback (60 words) - take into account the following factors:
    - Communication Skills: Evaluate the use of language, grammar, and vocabulary. Assess if the interviewee communicated effectively and clearly.
    - Time Taken to Answer: Consider if the interviewee answered promptly or took too long. Note if they were concise or tended to ramble.

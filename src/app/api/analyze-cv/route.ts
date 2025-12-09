@@ -6,6 +6,15 @@ import { CV_ANALYSIS_SYSTEM_PROMPT, getCVAnalysisPrompt } from "@/lib/prompts/cv
 import { InterviewService } from "@/services/interviews.service";
 import { ResponseService } from "@/services/responses.service";
 import { logger } from "@/lib/logger";
+import { createClient } from "@supabase/supabase-js";
+
+// Initialize Supabase client for storage
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+const BUCKET_NAME = "candidate-cvs";
 
 /**
  * Recursively sanitize an object to remove problematic characters from all strings
@@ -108,6 +117,50 @@ export async function POST(req: Request) {
       try {
         logger.info(`Processing CV: ${file.name}`);
 
+        // Upload CV to Supabase Storage first
+        let cvStorageUrl: string | null = null;
+        try {
+          const timestamp = Date.now();
+          const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+          const storagePath = `${interviewId}/${timestamp}_${sanitizedFileName}`;
+          
+          const fileBuffer = await file.arrayBuffer();
+          const { error: uploadError } = await supabase.storage
+            .from(BUCKET_NAME)
+            .upload(storagePath, fileBuffer, {
+              contentType: file.type,
+              upsert: false
+            });
+          
+          if (uploadError) {
+            // If bucket doesn't exist, try to create it
+            if (uploadError.message.includes("not found")) {
+              await supabase.storage.createBucket(BUCKET_NAME, {
+                public: false,
+                fileSizeLimit: 10 * 1024 * 1024
+              });
+              // Retry upload
+              await supabase.storage
+                .from(BUCKET_NAME)
+                .upload(storagePath, fileBuffer, {
+                  contentType: file.type,
+                  upsert: false
+                });
+            }
+          }
+          
+          // Get the URL
+          const { data: urlData } = supabase.storage
+            .from(BUCKET_NAME)
+            .getPublicUrl(storagePath);
+          
+          cvStorageUrl = urlData?.publicUrl || null;
+          logger.info(`CV uploaded to storage: ${cvStorageUrl}`);
+        } catch (storageError) {
+          logger.error("Failed to upload CV to storage:", storageError as Error);
+          // Continue processing even if storage upload fails
+        }
+
         // Parse the CV file
         const parseResult = await parseCV(file);
         
@@ -194,7 +247,7 @@ export async function POST(req: Request) {
           candidate_status: "no_status",
           tab_switch_count: 0,
           profile_type: "cv", // Mark as CV submission
-          cv_url: null, // Could store the CV URL if we upload to storage
+          cv_url: cvStorageUrl, // Store the CV storage URL
           details: {
             source: "cv_upload",
             fileName: file.name,
