@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Table,
   TableBody,
@@ -16,7 +16,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { ArrowUpDown, ExternalLink, Scale } from "lucide-react";
+import { ArrowUpDown, ExternalLink, Scale, Info } from "lucide-react";
 import {
   Tooltip,
   TooltipTrigger,
@@ -54,24 +54,6 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
   const [sorting, setSorting] = useState<SortingState>([
     { id: hasCustomMetrics ? "weightedOverallScore" : "overallScore", desc: true },
   ]);
-  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
-  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  const handleMouseEnter = useCallback((rowId: string) => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-    }
-    hoverTimeoutRef.current = setTimeout(() => {
-      setHoveredRowId(rowId);
-    }, 400);
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    if (hoverTimeoutRef.current) {
-      clearTimeout(hoverTimeoutRef.current);
-    }
-    setHoveredRowId(null);
-  }, []);
 
   const customSortingFn = (a: any, b: any) => {
     if (a === null || a === undefined) {
@@ -171,7 +153,7 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
           return (
             <div className="min-h-[2.6em] flex items-center justify-center">
               <span className={score !== undefined ? "font-semibold text-indigo-600" : ""}>
-                {score ?? "-"}
+                {score !== undefined ? Math.round(score) : "-"}
               </span>
             </div>
           );
@@ -200,11 +182,14 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
           </Button>
         );
       },
-      cell: ({ row }) => (
-        <div className="min-h-[2.6em] flex items-center justify-center">
-          {row.getValue("overallScore") ?? "-"}
-        </div>
-      ),
+      cell: ({ row }) => {
+        const score = row.getValue("overallScore") as number | undefined;
+        return (
+          <div className="min-h-[2.6em] flex items-center justify-center">
+            {score !== undefined ? Math.round(score) : "-"}
+          </div>
+        );
+      },
       sortingFn: (rowA, rowB, columnId) => {
         const a = rowA.getValue(columnId) as number | null;
         const b = rowB.getValue(columnId) as number | null;
@@ -228,11 +213,14 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
           </Button>
         );
       },
-      cell: ({ row }) => (
-        <div className="min-h-[2.6em] flex items-center justify-center">
-          {row.getValue("communicationScore") ?? "-"}
-        </div>
-      ),
+      cell: ({ row }) => {
+        const score = row.getValue("communicationScore") as number | undefined;
+        return (
+          <div className="min-h-[2.6em] flex items-center justify-center">
+            {score !== undefined ? Math.round(score) : "-"}
+          </div>
+        );
+      },
       sortingFn: (rowA, rowB, columnId) => {
         const a = rowA.getValue(columnId) as number | null;
         const b = rowB.getValue(columnId) as number | null;
@@ -275,7 +263,9 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
           return (
             <div className="min-h-[2.6em] flex items-center justify-center">
               {score !== undefined ? (
-                <span className="text-sm">{score}/10</span>
+                <span className={`text-sm font-medium ${score >= 7 ? 'text-green-600' : score >= 4 ? 'text-yellow-600' : 'text-red-500'}`}>
+                  {Math.round(score)}
+                </span>
               ) : (
                 <span className="text-gray-400 text-sm">-</span>
               )}
@@ -301,28 +291,33 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
       ),
       cell: ({ row }) => {
         const summary = row.getValue("callSummary") as string;
-
         return (
-          <div className="text-xs text-justify pr-4">
-            <div
-              className={`
-                overflow-hidden transition-all duration-300 ease-in-out
-                ${
-                  hoveredRowId === row.id
-                    ? "max-h-[1000px] opacity-100"
-                    : "max-h-[2.6em] line-clamp-2 opacity-90"
-                }
-              `}
-            >
-              {summary}
-            </div>
+          <div className="flex items-center justify-center">
+            <TooltipProvider delayDuration={100}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-slate-100 transition-colors">
+                    <Info size={16} className="text-indigo-500" />
+                    <span className="text-xs text-gray-500">View</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent 
+                  side="left" 
+                  className="bg-gray-800 text-white max-w-sm p-3 rounded-lg shadow-xl"
+                  sideOffset={5}
+                >
+                  <p className="font-semibold text-sm mb-1 text-indigo-300">Candidate Summary</p>
+                  <p className="text-sm leading-relaxed">{summary}</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           </div>
         );
       },
     });
 
     return baseColumns;
-  }, [customMetricDefinitions, hasCustomMetrics, hoveredRowId, interviewId]);
+  }, [customMetricDefinitions, hasCustomMetrics, interviewId]);
 
   const table = useReactTable({
     data,
@@ -356,11 +351,7 @@ function DataTable({ data, interviewId, customMetricDefinitions = [] }: DataTabl
         </TableHeader>
         <TableBody>
           {table.getRowModel().rows.map((row) => (
-            <TableRow
-              key={row.id}
-              onMouseEnter={() => handleMouseEnter(row.id)}
-              onMouseLeave={handleMouseLeave}
-            >
+            <TableRow key={row.id}>
               {row.getVisibleCells().map((cell) => (
                 <TableCell
                   key={cell.id}

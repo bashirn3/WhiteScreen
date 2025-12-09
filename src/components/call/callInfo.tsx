@@ -67,6 +67,8 @@ function CallInfo({
   const [candidateStatus, setCandidateStatus] = useState<string>("");
   const [interviewId, setInterviewId] = useState<string>("");
   const [tabSwitchCount, setTabSwitchCount] = useState<number>();
+  const [isCVUpload, setIsCVUpload] = useState<boolean>(false);
+  const [cvFileName, setCvFileName] = useState<string>("");
   const { getInterviewById } = useInterviews();
 
   useEffect(() => {
@@ -101,6 +103,15 @@ function CallInfo({
         setCandidateStatus(response.candidate_status);
         setInterviewId(response.interview_id);
         setTabSwitchCount(response.tab_switch_count);
+        
+        // Check if this is a CV upload
+        if (response.details?.source === "cv_upload") {
+          setIsCVUpload(true);
+          setCvFileName(response.details.fileName || "");
+        } else {
+          setIsCVUpload(false);
+          setCvFileName("");
+        }
       } catch (error) {
         console.error(error);
       } finally {
@@ -128,10 +139,90 @@ function CallInfo({
       return updatedTranscript;
     };
 
-    if (call && name) {
-      setTranscript(replaceAgentAndUser(call?.transcript as string, name));
+    if (call && name && call.transcript) {
+      setTranscript(replaceAgentAndUser(call.transcript as string, name));
+    } else if (call?.details?.source === "cv_upload") {
+      // For CV uploads, show formatted CV analysis instead of raw text
+      const cvAnalysisDisplay = (analytics as any)?.cvAnalysis?.cvAnalysisDisplay;
+      
+      if (cvAnalysisDisplay) {
+        // Build formatted analysis display
+        let formattedAnalysis = `## 📋 CV Analysis\n\n`;
+        
+        // Profile Summary
+        if (cvAnalysisDisplay.profileSummary) {
+          formattedAnalysis += `### Profile Summary\n${cvAnalysisDisplay.profileSummary}\n\n`;
+        }
+        
+        // Work History
+        if (cvAnalysisDisplay.workHistory?.length > 0) {
+          formattedAnalysis += `### 💼 Work Experience\n`;
+          cvAnalysisDisplay.workHistory.forEach((job: any) => {
+            formattedAnalysis += `**${job.role}** at *${job.company}*\n`;
+            if (job.duration) formattedAnalysis += `📅 ${job.duration}\n`;
+            if (job.highlights?.length > 0) {
+              job.highlights.forEach((h: string) => {
+                formattedAnalysis += `- ${h}\n`;
+              });
+            }
+            formattedAnalysis += `\n`;
+          });
+        }
+        
+        // Education
+        if (cvAnalysisDisplay.educationDetails?.length > 0) {
+          formattedAnalysis += `### 🎓 Education\n`;
+          cvAnalysisDisplay.educationDetails.forEach((edu: any) => {
+            formattedAnalysis += `**${edu.degree}** - ${edu.institution}`;
+            if (edu.year) formattedAnalysis += ` (${edu.year})`;
+            formattedAnalysis += `\n`;
+          });
+          formattedAnalysis += `\n`;
+        }
+        
+        // Technical Skills
+        if (cvAnalysisDisplay.technicalSkills?.length > 0) {
+          formattedAnalysis += `### 🛠️ Technical Skills\n`;
+          cvAnalysisDisplay.technicalSkills.forEach((category: any) => {
+            formattedAnalysis += `**${category.category}:** ${category.skills?.join(", ") || "N/A"}\n`;
+          });
+          formattedAnalysis += `\n`;
+        }
+        
+        // Achievements
+        if (cvAnalysisDisplay.achievements?.length > 0) {
+          formattedAnalysis += `### 🏆 Key Achievements\n`;
+          cvAnalysisDisplay.achievements.forEach((a: string) => {
+            formattedAnalysis += `- ${a}\n`;
+          });
+          formattedAnalysis += `\n`;
+        }
+        
+        // Strengths
+        if (cvAnalysisDisplay.strengths?.length > 0) {
+          formattedAnalysis += `### ✅ Strengths\n`;
+          cvAnalysisDisplay.strengths.forEach((s: string) => {
+            formattedAnalysis += `- ${s}\n`;
+          });
+          formattedAnalysis += `\n`;
+        }
+        
+        // Areas of Concern
+        if (cvAnalysisDisplay.areasOfConcern?.length > 0) {
+          formattedAnalysis += `### ⚠️ Areas to Explore\n`;
+          cvAnalysisDisplay.areasOfConcern.forEach((c: string) => {
+            formattedAnalysis += `- ${c}\n`;
+          });
+        }
+        
+        setTranscript(formattedAnalysis);
+      } else {
+        // Fallback to experience summary if no detailed analysis
+        const experienceSummary = analytics?.softSkillSummary || "No analysis available";
+        setTranscript(`## CV Analysis\n\n${experienceSummary}`);
+      }
     }
-  }, [call, name]);
+  }, [call, name, analytics]);
 
   const onDeleteResponseClick = async () => {
     try {
@@ -318,22 +409,40 @@ function CallInfo({
                     </AlertDialog>
                   </div>
                 </div>
-                <div className="flex flex-col mt-3">
-                  <p className="font-semibold">Interview Recording</p>
-                  <div className="flex flex-row gap-3 mt-2">
-                    {call?.recording_url && (
-                      <ReactAudioPlayer src={call?.recording_url} controls />
+                {/* Show different content based on whether this is a CV upload or interview */}
+                {isCVUpload ? (
+                  <div className="flex flex-col mt-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-green-600" />
+                      <p className="font-semibold text-green-700">CV Analysis</p>
+                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                        Resume-based evaluation
+                      </span>
+                    </div>
+                    {cvFileName && (
+                      <p className="text-sm text-gray-600 mt-2">
+                        Source file: {cvFileName}
+                      </p>
                     )}
-                    <a
-                      className="my-auto"
-                      href={call?.recording_url}
-                      download=""
-                      aria-label="Download"
-                    >
-                      <DownloadIcon size={20} />
-                    </a>
                   </div>
-                </div>
+                ) : (
+                  <div className="flex flex-col mt-3">
+                    <p className="font-semibold">Interview Recording</p>
+                    <div className="flex flex-row gap-3 mt-2">
+                      {call?.recording_url && (
+                        <ReactAudioPlayer src={call?.recording_url} controls />
+                      )}
+                      <a
+                        className="my-auto"
+                        href={call?.recording_url}
+                        download=""
+                        aria-label="Download"
+                      >
+                        <DownloadIcon size={20} />
+                      </a>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             {/* <div>{call.}</div> */}
@@ -353,7 +462,7 @@ function CallInfo({
                         track: "stroke-indigo-600/10",
                         value: "text-2xl font-bold text-indigo-600",
                       }}
-                      value={analytics?.weightedOverallScore}
+                      value={Math.round(analytics?.weightedOverallScore || 0)}
                       strokeWidth={4}
                       showValueLabel={true}
                       formatOptions={{ signDisplay: "never" }}
@@ -372,7 +481,7 @@ function CallInfo({
                       <div key={metric.metricId} className="flex items-center justify-between text-xs">
                         <span className="text-gray-700 truncate max-w-[150px]">{metric.title}</span>
                         <span className={`font-semibold ${metric.score >= 7 ? 'text-green-600' : metric.score >= 4 ? 'text-yellow-600' : 'text-red-500'}`}>
-                          {metric.score}/10
+                          {Math.round(metric.score)}
                         </span>
                       </div>
                     ))}
@@ -422,8 +531,7 @@ function CallInfo({
                       showValueLabel={true}
                       valueLabel={
                         <div className="flex items-baseline">
-                          {analytics?.communication.score ?? 0}
-                          <span className="text-sm">/10</span>
+                          {Math.round(analytics?.communication.score ?? 0)}
                         </div>
                       }
                       formatOptions={{ signDisplay: "never" }}
@@ -467,7 +575,7 @@ function CallInfo({
                 {analytics.weightedOverallScore !== undefined && (
                   <div className="ml-auto flex items-center gap-2 bg-indigo-100 px-3 py-1 rounded-lg">
                     <span className="text-sm font-medium text-indigo-700">Weighted Score:</span>
-                    <span className="text-xl font-bold text-indigo-600">{analytics.weightedOverallScore}</span>
+                    <span className="text-xl font-bold text-indigo-600">{Math.round(analytics.weightedOverallScore)}</span>
                   </div>
                 )}
               </div>
@@ -476,53 +584,36 @@ function CallInfo({
                 {analytics.customMetrics.map((metric: CustomMetricScore) => (
                   <div
                     key={metric.metricId}
-                    className="flex flex-col gap-2 text-sm p-4 rounded-2xl bg-slate-50"
+                    className="flex flex-col gap-2 text-sm p-4 rounded-2xl bg-slate-50 border border-slate-200"
                   >
-                    <div className="flex items-center gap-2">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2 cursor-help">
-                              <p className="font-semibold text-base">{metric.title}</p>
-                              <Info className="h-4 w-4 text-gray-400" />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent className="bg-gray-700 text-white max-w-xs">
-                            <p>Weight: {metric.weight}/10</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold text-base">{metric.title}</p>
+                      <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">
+                        Weight: {metric.weight}
+                      </span>
                     </div>
                     
                     <div className="flex items-center gap-3">
-                      <CircularProgress
-                        classNames={{
-                          svg: "w-20 h-20 drop-shadow-md",
-                          indicator: "stroke-orange-500",
-                          track: "stroke-orange-500/10",
-                          value: "text-2xl font-semibold text-orange-500",
-                        }}
-                        value={metric.score}
-                        maxValue={10}
-                        minValue={0}
-                        strokeWidth={4}
-                        showValueLabel={true}
-                        valueLabel={
-                          <div className="flex items-baseline">
-                            {metric.score ?? 0}
-                            <span className="text-sm ml-0.5">/10</span>
-                          </div>
-                        }
-                        formatOptions={{ signDisplay: "never" }}
-                      />
-                      <div className="flex-1">
-                        <span className="text-xs text-gray-500">Weight: {metric.weight}</span>
+                      <div className={`text-3xl font-bold ${
+                        metric.score >= 7 ? 'text-green-600' : 
+                        metric.score >= 4 ? 'text-yellow-600' : 'text-red-500'
+                      }`}>
+                        {Math.round(metric.score ?? 0)}
+                      </div>
+                      <div className="flex-1 h-2 bg-slate-200 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full ${
+                            metric.score >= 7 ? 'bg-green-500' : 
+                            metric.score >= 4 ? 'bg-yellow-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${(metric.score / 10) * 100}%` }}
+                        />
                       </div>
                     </div>
                     
-                    <div className="text-sm">
-                      <span className="font-normal text-gray-600">Feedback: </span>
-                      <span className="font-medium">{metric.feedback || "No feedback available"}</span>
+                    <div className="text-xs text-gray-600 mt-1 line-clamp-3">
+                      <span className="font-medium text-gray-700">Reasoning: </span>
+                      {metric.feedback || "No reasoning provided"}
                     </div>
                   </div>
                 ))}
@@ -547,12 +638,14 @@ function CallInfo({
               </div>
             )}
           <div className="bg-slate-200 rounded-2xl min-h-[150px] max-h-[500px] p-4 px-5 mb-[150px]">
-            <p className="font-semibold my-2 mb-4">Transcript</p>
+            <p className="font-semibold my-2 mb-4">
+              {isCVUpload ? "CV Content" : "Transcript"}
+            </p>
             <ScrollArea className="rounded-2xl text-sm h-96  overflow-y-auto whitespace-pre-line px-2">
               <div
                 className="text-sm p-4 rounded-2xl leading-5 bg-slate-50"
                 // eslint-disable-next-line react/no-danger
-                dangerouslySetInnerHTML={{ __html: marked(transcript) as string }}
+                dangerouslySetInnerHTML={{ __html: marked(transcript || "") as string }}
               />
             </ScrollArea>
           </div>
