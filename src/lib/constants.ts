@@ -65,7 +65,7 @@ export const INTERVIEWERS = {
     audio: "Lisa.wav",
     // Azure voice configuration
     voiceProvider: "azure",
-    voiceId: "en-US-JennyNeural", // Azure neural voice - warm, friendly
+    voiceId: "en-US-AvaMultilingualNeural", // Azure neural voice - warm, friendly
   },
   BOB: {
     name: "Empathetic Echo",
@@ -79,6 +79,6 @@ export const INTERVIEWERS = {
     audio: "Bob.wav",
     // Azure voice configuration
     voiceProvider: "azure",
-    voiceId: "en-US-GuyNeural", // Azure neural voice - natural, conversational
+    voiceId: "en-US-AndrewMultilingualNeural", // Azure neural voice - natural, conversational
   },
 };

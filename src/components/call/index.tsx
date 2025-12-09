@@ -99,6 +99,7 @@ function Call({ interview }: InterviewProps) {
   const [isStarted, setIsStarted] = useState(false);
   const [isEnded, setIsEnded] = useState(false);
   const [isCalling, setIsCalling] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const [email, setEmail] = useState<string>("");
   const [name, setName] = useState<string>("");
   const [linkedinProfile, setLinkedinProfile] = useState<string>("");
@@ -326,6 +327,7 @@ function Call({ interview }: InterviewProps) {
     vapiClient.on("call-start", () => {
       console.log("Call started (practice:", isPracticing, ")");
       setIsCalling(true);
+      setIsConnecting(false);  // Hide connecting loader
       // Explicitly mute mic on call start
       vapiClient.setMuted(true);
     });
@@ -623,6 +625,9 @@ function Call({ interview }: InterviewProps) {
         
         console.log("[executeStartConversation] Vapi call initiated:", call);
         
+        // Show connecting loader while waiting for call-start event
+        setIsConnecting(true);
+        
         // Update call ID with actual call ID from Vapi
         if (call?.id) {
           const realCallId = call.id;
@@ -910,6 +915,20 @@ function Call({ interview }: InterviewProps) {
             </div>
 
       {isStarted && !isPracticing && !isEnded && <TabSwitchWarning />}
+      
+      {/* Connecting Loader Overlay */}
+      {isConnecting && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-white/10 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-white/20">
+            <div className="flex flex-col items-center gap-4">
+              <MiniLoader />
+              <p className="text-white text-lg font-medium animate-pulse">
+                Connecting to AI...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Content Container */}
       <div className="relative z-10 h-full flex overflow-y-auto">
