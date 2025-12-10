@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import LoaderWithLogo from "@/components/loaders/loader-with-logo/loaderWithLogo";
 import DetailsPopup from "@/components/dashboard/interview/create-popup/details";
+import CustomMetricsPopup from "@/components/dashboard/interview/create-popup/customMetrics";
 import QuestionsPopup from "@/components/dashboard/interview/create-popup/questions";
 import { InterviewBase } from "@/types/interview";
 
@@ -8,6 +9,9 @@ interface Props {
   open: boolean;
   setOpen: (open: boolean) => void;
 }
+
+// Flow: Details -> Loading -> Questions -> Metrics -> Save
+type Step = "details" | "loading" | "questions" | "metrics";
 
 const CreateEmptyInterviewData = (): InterviewBase => ({
   user_id: "",
@@ -25,8 +29,7 @@ const CreateEmptyInterviewData = (): InterviewBase => ({
 });
 
 function CreateInterviewModal({ open, setOpen }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [proceed, setProceed] = useState(false);
+  const [step, setStep] = useState<Step>("details");
   const [interviewData, setInterviewData] = useState<InterviewBase>(
     CreateEmptyInterviewData(),
   );
@@ -37,18 +40,27 @@ function CreateInterviewModal({ open, setOpen }: Props) {
   const [isUploaded, setIsUploaded] = useState(false);
   const [fileName, setFileName] = useState("");
 
+  // Track when questions are ready
+  const [questionsReady, setQuestionsReady] = useState(false);
+
+  // Handle loading state transition - only move to questions when data is ready
   useEffect(() => {
-    if (loading == true) {
-      setLoading(false);
-      setProceed(true);
+    if (step === "loading" && questionsReady) {
+      setStep("questions");
+      setQuestionsReady(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interviewData]);
+  }, [step, questionsReady]);
+
+  // Watch for interview data changes during loading
+  useEffect(() => {
+    if (step === "loading" && interviewData.questions.length > 0) {
+      setQuestionsReady(true);
+    }
+  }, [step, interviewData.questions.length]);
 
   useEffect(() => {
     if (!open) {
-      setLoading(false);
-      setProceed(false);
+      setStep("details");
       setInterviewData(CreateEmptyInterviewData());
       setIsUploaded(false);
       setFileName("");
@@ -61,18 +73,42 @@ function CreateInterviewModal({ open, setOpen }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const handleDetailsComplete = useCallback(() => {
+    setStep("loading");
+  }, []);
+
+  const handleSetInterviewData = useCallback((data: InterviewBase) => {
+    setInterviewData(data);
+    // If questions are set, mark as ready
+    if (data.questions && data.questions.length > 0) {
+      setQuestionsReady(true);
+    }
+  }, []);
+
+  const handleQuestionsBack = () => {
+    setStep("details");
+  };
+
+  const handleQuestionsNext = () => {
+    setStep("metrics");
+  };
+
+  const handleMetricsBack = () => {
+    setStep("questions");
+  };
+
   return (
     <>
-      {loading ? (
-        <div className="w-[38rem] h-[35.3rem]">
+      {step === "loading" ? (
+        <div className="w-full max-w-[38rem] min-w-[320px] h-[28rem] flex items-center justify-center">
           <LoaderWithLogo />
         </div>
-      ) : !proceed ? (
+      ) : step === "details" ? (
         <DetailsPopup
           open={open}
-          setLoading={setLoading}
+          setLoading={handleDetailsComplete}
           interviewData={interviewData}
-          setInterviewData={setInterviewData}
+          setInterviewData={handleSetInterviewData}
           isUploaded={isUploaded}
           setIsUploaded={setIsUploaded}
           fileName={fileName}
@@ -82,11 +118,20 @@ function CreateInterviewModal({ open, setOpen }: Props) {
           logoPreview={logoPreview}
           setLogoPreview={setLogoPreview}
         />
-      ) : (
+      ) : step === "questions" ? (
         <QuestionsPopup
           interviewData={interviewData}
+          setInterviewData={setInterviewData}
           logoFile={logoFile}
-          setProceed={setProceed}
+          onBack={handleQuestionsBack}
+          onNext={handleQuestionsNext}
+        />
+      ) : (
+        <CustomMetricsPopup
+          interviewData={interviewData}
+          setInterviewData={setInterviewData}
+          logoFile={logoFile}
+          onBack={handleMetricsBack}
           setOpen={setOpen}
         />
       )}
@@ -95,3 +140,4 @@ function CreateInterviewModal({ open, setOpen }: Props) {
 }
 
 export default CreateInterviewModal;
+

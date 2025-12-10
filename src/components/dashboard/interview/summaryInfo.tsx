@@ -3,7 +3,7 @@
 import { Interview } from "@/types/interview";
 import { Interviewer } from "@/types/interviewer";
 import { Response } from "@/types/response";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { UserCircleIcon, SmileIcon, Info, FileText } from "lucide-react";
 import { useInterviewers } from "@/contexts/interviewers.context";
 import { PieChart } from "@mui/x-charts/PieChart";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/tooltip";
 import DataTable, {
   TableData,
+  CustomMetricScoreData,
 } from "@/components/dashboard/interview/dataTable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,7 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
   const [interviewer, setInterviewer] = useState<Interviewer>();
   const [totalDuration, setTotalDuration] = useState<number>(0);
   const [completedInterviews, setCompletedInterviews] = useState<number>(0);
+  const [sourceFilter, setSourceFilter] = useState<"all" | "interviews" | "cvs">("all");
   const [sentimentCount, setSentimentCount] = useState({
     positive: 0,
     negative: 0,
@@ -63,7 +65,21 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
     partial: 0,
   });
 
-  const totalResponses = responses.length;
+  // Memoize filtered responses to prevent infinite loops
+  const filteredResponses = useMemo(() => {
+    return responses.filter((response) => {
+      if (sourceFilter === "all") return true;
+      const isCVUpload = response?.details?.source === "cv_upload";
+      if (sourceFilter === "cvs") return isCVUpload;
+      return !isCVUpload; // interviews
+    });
+  }, [responses, sourceFilter]);
+
+  // Counts for filter badges
+  const interviewCount = useMemo(() => responses.filter(r => r?.details?.source !== "cv_upload").length, [responses]);
+  const cvCount = useMemo(() => responses.filter(r => r?.details?.source === "cv_upload").length, [responses]);
+
+  const totalResponses = filteredResponses.length;
 
   const [candidateStatusCount, setCandidateStatusCount] = useState({
     [CandidateStatus.NO_STATUS]: 0,
@@ -75,16 +91,37 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
   const [tableData, setTableData] = useState<TableData[]>([]);
 
   const prepareTableData = (responses: Response[]): TableData[] => {
-    return responses.map((response) => ({
-      call_id: response.call_id,
-      name: response.name || "Anonymous",
-      overallScore: response.analytics?.overallScore || 0,
-      communicationScore: response.analytics?.communication?.score || 0,
-      callSummary:
-        response.analytics?.softSkillSummary ||
-        response.details?.call_analysis?.call_summary ||
-        "No summary available",
-    }));
+    return responses.map((response: any) => {
+      // Build custom metric scores as flattened keys
+      const customMetricScores: CustomMetricScoreData = {};
+      if (response.analytics?.customMetrics) {
+        response.analytics.customMetrics.forEach((metricScore: any) => {
+          customMetricScores[`metric_${metricScore.metricId}`] = metricScore.score;
+        });
+      }
+
+      // Determine if this is a CV upload or interview with attached CV
+      const isCVUpload = response.details?.source === "cv_upload";
+      const attachedCv = response.details?.attached_cv;
+      const hasAttachedCV = !isCVUpload && Boolean(attachedCv?.text);
+
+      return {
+        call_id: response.call_id,
+        name: response.name || "Anonymous",
+        overallScore: response.analytics?.overallScore || 0,
+        communicationScore: response.analytics?.communication?.score || 0,
+        weightedOverallScore: response.analytics?.weightedOverallScore,
+        customMetrics: response.analytics?.customMetrics,
+        callSummary:
+          response.analytics?.softSkillSummary ||
+          response.details?.call_analysis?.call_summary ||
+          "No summary available",
+        cv_url: attachedCv?.url || response.cv_url,
+        isCVUpload,
+        hasAttachedCV,
+        ...customMetricScores,
+      };
+    });
   };
 
   useEffect(() => {
@@ -98,7 +135,7 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
   }, [interviewers, interview]);
 
   useEffect(() => {
-    if (!responses) {
+    if (!filteredResponses) {
       return;
     }
 
@@ -124,7 +161,7 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
       [CandidateStatus.SELECTED]: 0,
     };
 
-    responses.forEach((response) => {
+    filteredResponses.forEach((response) => {
       const sentiment = response.details?.call_analysis?.user_sentiment;
       if (sentiment === "Positive") {
         sentimentCounter.positive += 1;
@@ -169,13 +206,13 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
     setCompletedInterviews(completedCount);
     setCandidateStatusCount(statusCounter);
 
-    const preparedData = prepareTableData(responses);
+    const preparedData = prepareTableData(filteredResponses);
     setTableData(preparedData);
-  }, [responses]);
+  }, [filteredResponses]);
 
   const handleDownloadAllCandidatesPDF = async () => {
     try {
-      if (!responses || responses.length === 0) {
+      if (!filteredResponses || filteredResponses.length === 0) {
         toast.error("No candidates to download.", {
           position: "bottom-right",
           duration: 3000,
@@ -183,8 +220,9 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
         return;
       }
 
-      await generateAllCandidatesPDF(responses, interview);
-      toast.success("All candidates PDF downloaded successfully!", {
+      await generateAllCandidatesPDF(filteredResponses, interview);
+      const filterLabel = sourceFilter === "all" ? "all candidates" : sourceFilter === "interviews" ? "interview candidates" : "CV candidates";
+      toast.success(`${filterLabel} PDF downloaded successfully!`, {
         position: "bottom-right",
         duration: 3000,
       });
@@ -204,15 +242,48 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
           <div className="flex flex-row gap-2 justify-between items-center mx-2">
             <div className="flex flex-row gap-2 items-center">
               <p className="font-semibold my-2">Overall Analysis</p>
+              {/* Source Filter Tabs */}
+              <div className="flex ml-4 bg-slate-100 rounded-lg p-1">
+                <button
+                  onClick={() => setSourceFilter("all")}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    sourceFilter === "all"
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  All ({responses.length})
+                </button>
+                <button
+                  onClick={() => setSourceFilter("interviews")}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    sourceFilter === "interviews"
+                      ? "bg-white text-indigo-600 shadow-sm"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  Interviews ({interviewCount})
+                </button>
+                <button
+                  onClick={() => setSourceFilter("cvs")}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    sourceFilter === "cvs"
+                      ? "bg-white text-green-600 shadow-sm"
+                      : "text-gray-600 hover:text-gray-800"
+                  }`}
+                >
+                  CVs ({cvCount})
+                </button>
+              </div>
             </div>
             <div className="flex flex-row gap-3 items-center">
               <Button
                 onClick={handleDownloadAllCandidatesPDF}
                 className="bg-orange-500 hover:bg-orange-600 text-white text-xs h-8"
-                disabled={!responses || responses.length === 0}
+                disabled={!filteredResponses || filteredResponses.length === 0}
               >
                 <FileText size={14} className="mr-2" />
-                Download All Reports
+                Download {sourceFilter === "all" ? "All" : sourceFilter === "interviews" ? "Interviews" : "CVs"} Reports
               </Button>
               <p className="text-sm">
                 Interviewer used:{" "}
@@ -226,7 +297,11 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
           </p>
           <div className="flex flex-col gap-1 my-2 mt-4 mx-2 p-4 rounded-2xl bg-slate-50 shadow-md">
             <ScrollArea className="h-[250px]">
-              <DataTable data={tableData} interviewId={interview?.id || ""} />
+              <DataTable 
+                data={tableData} 
+                interviewId={interview?.id || ""} 
+                customMetricDefinitions={interview?.custom_metrics || []}
+              />
             </ScrollArea>
           </div>
           <div className="flex flex-row gap-1 my-2 justify-center">
@@ -238,19 +313,19 @@ function SummaryInfo({ responses, interview }: SummaryProps) {
                 </div>
                 <div className="flex items-center justify-center">
                   <p className="text-2xl font-semibold text-orange-600 w-fit p-1 px-2 bg-orange-100 rounded-md">
-                    {convertSecondstoMMSS(totalDuration / responses.length)}
+                    {filteredResponses.length > 0 ? convertSecondstoMMSS(totalDuration / filteredResponses.length) : "0:00"}
                   </p>
                 </div>
               </div>
               <div className="flex flex-col items-center justify-center gap-1 mx-2 p-3 rounded-2xl bg-slate-50 shadow-md max-w-[360px]">
                 <div className="flex flex-row gap-1 font-semibold mb-1 text-[15px] mx-auto text-center">
-                  Interview Completion Rate
-                  <InfoTooltip content="Percentage of interviews completed successfully" />
+                  {sourceFilter === "cvs" ? "Analysis" : "Interview"} Completion Rate
+                  <InfoTooltip content={sourceFilter === "cvs" ? "Percentage of CVs analyzed successfully" : "Percentage of interviews completed successfully"} />
                 </div>
                 <p className="w-fit text-2xl font-semibold text-orange-600  p-1 px-2 bg-orange-100 rounded-md">
-                  {Math.round(
-                    (completedInterviews / responses.length) * 10000,
-                  ) / 100}
+                  {filteredResponses.length > 0 ? Math.round(
+                    (completedInterviews / filteredResponses.length) * 10000,
+                  ) / 100 : 0}
                   %
                 </p>
               </div>

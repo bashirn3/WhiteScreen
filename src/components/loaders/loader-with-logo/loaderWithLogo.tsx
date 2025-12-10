@@ -1,20 +1,18 @@
 import styles from "./loader.module.css";
 import Image from "next/image";
+import { AnimatedLoader } from "@/components/loaders";
 
 function LoaderWithLogo() {
   return (
-    <div className="absolute -translate-x-1/2 -translate-y-1/2 top-1/2 left-1/2">
+    <div className="flex flex-col items-center justify-center h-full w-full animate-fadeIn">
       <Image
         src="/loading-time.png"
         alt="logo"
-        width={200}
-        height={200}
-        className="object-cover object-center mx-auto mb-4"
+        width={180}
+        height={180}
+        className="object-cover object-center mb-6"
       />
-      <div className="flex flex-row items-center mx-auto">
-        {/* <p>Let us take a .....</p> */}
-        <div className={styles.loader} />
-      </div>
+      <AnimatedLoader size="md" text="Generating questions..." />
     </div>
   );
 }

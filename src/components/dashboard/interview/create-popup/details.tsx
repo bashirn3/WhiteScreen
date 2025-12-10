@@ -14,6 +14,7 @@ import Modal from "@/components/dashboard/Modal";
 import InterviewerDetailsModal from "@/components/dashboard/interviewer/interviewerDetailsModal";
 import { Interviewer } from "@/types/interviewer";
 import { useOrganization } from "@clerk/nextjs";
+import { toast } from "sonner";
 
 interface Props {
   open: boolean;
@@ -83,45 +84,55 @@ function DetailsPopup({
 
   const onGenrateQuestions = async () => {
     setLoading(true);
+    setIsClicked(true);
 
-    const data = {
-      name: name.trim(),
-      objective: objective.trim(),
-      number: numQuestions,
-      context: uploadedDocumentContext,
-    };
+    try {
+      const data = {
+        name: name.trim(),
+        objective: objective.trim(),
+        number: numQuestions,
+        context: uploadedDocumentContext,
+      };
 
-    const generatedQuestions = (await axios.post(
-      "/api/generate-interview-questions",
-      data,
-    )) as any;
+      const generatedQuestions = (await axios.post(
+        "/api/generate-interview-questions",
+        data,
+      )) as any;
 
-    const generatedQuestionsResponse = JSON.parse(
-      generatedQuestions?.data?.response,
-    );
+      const generatedQuestionsResponse = JSON.parse(
+        generatedQuestions?.data?.response,
+      );
 
-    const updatedQuestions = generatedQuestionsResponse.questions.map(
-      (question: Question) => ({
-        id: uuidv4(),
-        question: question.question.trim(),
-        follow_up_count: 1,
-      }),
-    );
+      const updatedQuestions = generatedQuestionsResponse.questions.map(
+        (question: Question) => ({
+          id: uuidv4(),
+          question: question.question.trim(),
+          follow_up_count: 1,
+        }),
+      );
 
-    const updatedInterviewData = {
-      ...interviewData,
-      name: name.trim(),
-      objective: objective.trim(),
-      questions: updatedQuestions,
-      interviewer_id: selectedInterviewer,
-      question_count: Number(numQuestions),
-      time_duration: duration,
-      description: generatedQuestionsResponse.description,
-      is_anonymous: isAnonymous,
-      job_context: jobContext.trim(),
-      logo_url: interviewData.logo_url ?? null,
-    };
-    setInterviewData(updatedInterviewData);
+      const updatedInterviewData = {
+        ...interviewData,
+        name: name.trim(),
+        objective: objective.trim(),
+        questions: updatedQuestions,
+        interviewer_id: selectedInterviewer,
+        question_count: Number(numQuestions),
+        time_duration: duration,
+        description: generatedQuestionsResponse.description,
+        is_anonymous: isAnonymous,
+        job_context: jobContext.trim(),
+        logo_url: interviewData.logo_url ?? null,
+      };
+      setInterviewData(updatedInterviewData);
+    } catch (error) {
+      console.error("Error generating questions:", error);
+      setIsClicked(false);
+      toast.error("Failed to generate questions. Please try again.", {
+        position: "bottom-right",
+        duration: 3000,
+      });
+    }
   };
 
   const onManual = () => {
@@ -164,14 +175,22 @@ function DetailsPopup({
 
   return (
     <>
-      <div className="text-center w-[38rem]">
+      <div className="text-center w-full max-w-[38rem] min-w-[320px] animate-fadeIn">
         <h1 className="text-xl font-semibold">Create an Interview</h1>
-        <div className="flex flex-col justify-center items-start mt-4 ml-10 mr-8">
-          <div className="flex flex-row justify-center items-center">
-            <h3 className="text-sm font-medium">Interview Name:</h3>
+        
+        {/* Step indicator */}
+        <div className="flex items-center justify-center gap-2 py-2">
+          <div className="w-8 h-1 bg-indigo-600 rounded" />
+          <div className="w-8 h-1 bg-gray-300 rounded" />
+          <div className="w-8 h-1 bg-gray-300 rounded" />
+        </div>
+
+        <div className="flex flex-col justify-center items-start mt-2 px-4 sm:px-8">
+          <div className="flex flex-col sm:flex-row justify-center items-start sm:items-center gap-2 w-full">
+            <h3 className="text-sm font-medium whitespace-nowrap">Interview Name:</h3>
             <input
               type="text"
-              className="border-b-2 focus:outline-none border-gray-500 px-2 w-96 py-0.5 ml-3"
+              className="border-b-2 focus:outline-none border-gray-500 px-2 w-full max-w-[24rem] py-0.5"
               placeholder="e.g. Name of the Interview"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -182,7 +201,7 @@ function DetailsPopup({
           <div className="relative flex items-center mt-1">
             <div
               id="slider-3"
-              className=" h-36 pt-1 overflow-x-scroll scroll whitespace-nowrap scroll-smooth scrollbar-hide w-[27.5rem]"
+              className="h-36 pt-1 overflow-x-auto scroll whitespace-nowrap scroll-smooth scrollbar-hide w-full max-w-full"
             >
               {interviewers.map((item, key) => (
                 <div
@@ -241,7 +260,7 @@ function DetailsPopup({
           <h3 className="text-sm font-medium">Objective:</h3>
           <Textarea
             value={objective}
-            className="h-24 mt-2 border-2 border-gray-500 w-[33.2rem]"
+            className="h-24 mt-2 border-2 border-gray-500 w-full"
             placeholder="e.g. Find best candidates based on their technical skills and previous projects."
             onChange={(e) => setObjective(e.target.value)}
             onBlur={(e) => setObjective(e.target.value.trim())}
@@ -249,7 +268,7 @@ function DetailsPopup({
           <h3 className="text-sm font-medium mt-2">Job Context:</h3>
           <Textarea
             value={jobContext}
-            className="h-24 mt-2 border-2 border-gray-500 w-[33.2rem]"
+            className="h-24 mt-2 border-2 border-gray-500 w-full"
             placeholder="e.g. Describe the role, required skills, company culture, etc."
             onChange={(e) => setJobContext(e.target.value)}
             onBlur={(e) => setJobContext(e.target.value.trim())}
@@ -309,9 +328,9 @@ function DetailsPopup({
               be collected.
             </span>
           </label>
-          <div className="flex flex-row gap-3 justify-between w-full mt-3">
-            <div className="flex flex-row justify-center items-center ">
-              <h3 className="text-sm font-medium ">Number of Questions:</h3>
+          <div className="flex flex-col sm:flex-row gap-3 justify-between w-full mt-3">
+            <div className="flex flex-row justify-start sm:justify-center items-center">
+              <h3 className="text-sm font-medium whitespace-nowrap">Number of Questions:</h3>
               <input
                 type="number"
                 step="1"
@@ -353,7 +372,7 @@ function DetailsPopup({
               />
             </div>
           </div>
-          <div className="flex flex-row w-full justify-center items-center space-x-24 mt-5">
+          <div className="flex flex-col sm:flex-row w-full justify-center items-center gap-4 sm:gap-8 mt-5 pb-2">
             <Button
               disabled={
                 (name &&
@@ -364,7 +383,7 @@ function DetailsPopup({
                   ? false
                   : true) || isClicked
               }
-              className="bg-indigo-600 hover:bg-indigo-800  w-40"
+              className="bg-indigo-600 hover:bg-indigo-800 w-full sm:w-40"
               onClick={() => {
                 setIsClicked(true);
                 onGenrateQuestions();
@@ -382,7 +401,7 @@ function DetailsPopup({
                   ? false
                   : true) || isClicked
               }
-              className="bg-indigo-600 w-40 hover:bg-indigo-800"
+              className="bg-indigo-600 w-full sm:w-40 hover:bg-indigo-800"
               onClick={() => {
                 setIsClicked(true);
                 onManual();

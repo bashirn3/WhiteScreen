@@ -48,7 +48,9 @@ const createInterviewer = async (payload: any) => {
 
   const { error, data } = await supabase
     .from("interviewer")
-    .insert({ ...payload });
+    .insert({ ...payload })
+    .select()
+    .single();
 
   if (error) {
     console.error("Error creating interviewer:", error);

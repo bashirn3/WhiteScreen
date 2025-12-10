@@ -1,10 +1,10 @@
 import { logger } from "@/lib/logger";
 import { InterviewerService } from "@/services/interviewers.service";
 import { NextResponse } from "next/server";
-import Retell from "retell-sdk";
+import { VapiClient } from "@vapi-ai/server-sdk";
 
-const retellClient = new Retell({
-  apiKey: process.env.RETELL_API_KEY || "",
+const vapiClient = new VapiClient({
+  token: process.env.VAPI_API_KEY || "",
 });
 
 export async function POST(req: Request, res: Response) {
@@ -37,18 +37,34 @@ export async function POST(req: Request, res: Response) {
     if (!interviewer.agent_id) {
       logger.error(`Interviewer ${interviewerId} has no agent_id`);
       return NextResponse.json(
-        { error: "Interviewer has no agent configured" },
+        { error: "Interviewer has no assistant configured" },
         { status: 500 },
       );
     }
 
-    logger.info(`Creating web call for agent: ${interviewer.agent_id}`);
-    const registerCallResponse = await retellClient.call.createWebCall({
-      agent_id: interviewer.agent_id,
-      retell_llm_dynamic_variables: body.dynamic_data,
-    });
+    logger.info(`Preparing Vapi call for assistant: ${interviewer.agent_id}`);
+    
+    // For Vapi web calls, the frontend vapi.start() creates the call
+    // We just need to pass the assistant ID and override data
+    // Generate a temporary call ID for tracking
+    const tempCallId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    logger.info("Returning assistant configuration for frontend");
 
-    logger.info("Call registered successfully");
+    // Format response to match frontend expectations
+    // access_token is actually the assistant ID for Vapi web calls
+    const registerCallResponse = {
+      call_id: tempCallId,
+      access_token: interviewer.agent_id, // Frontend will use this as assistant ID
+      // Include dynamic data for frontend to pass as assistantOverrides
+      dynamic_data: {
+        name: body.dynamic_data?.name || "",
+        mins: body.dynamic_data?.mins || "",
+        objective: body.dynamic_data?.objective || "",
+        job_context: body.dynamic_data?.job_context || "",
+        questions: body.dynamic_data?.questions || "",
+      },
+    };
 
     return NextResponse.json(
       {

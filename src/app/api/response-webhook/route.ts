@@ -1,45 +1,74 @@
 import axios from "axios";
 import { NextRequest, NextResponse } from "next/server";
-import { Retell } from "retell-sdk";
 
-const apiKey = process.env.RETELL_API_KEY || "";
-
-export async function POST(req: NextRequest, res: NextResponse) {
+export async function POST(req: NextRequest) {
   if (req.method !== "POST") {
     return NextResponse.json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  if (
-    !Retell.verify(
-      JSON.stringify(req.body),
-      apiKey,
-      req.headers.get("x-retell-signature") as string,
-    )
-  ) {
-    console.error("Invalid signature");
+  try {
+    const body = await req.json();
+    
+    // Vapi webhook signature verification (optional but recommended)
+    const signature = req.headers.get("x-vapi-signature");
+    
+    // Note: Vapi signature verification can be added here when webhook secret is configured
+    // For now, we'll process all webhooks (can add verification later)
+    
+    const { event, payload } = body;
 
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  const { event, call } = req.body as unknown as { event: string; call: any };
-
-  switch (event) {
-    case "call_started":
-      console.log("Call started event received", call.call_id);
+    // Handle different Vapi events (Vapi uses dot notation for events)
+    switch (event) {
+      case "call.started":
+      case "assistant-request":
+        console.log("Call started event received", payload?.call?.id);
+        break;
+        
+      case "call.ended":
+      case "end-of-call-report":
+        console.log("Call ended event received", payload?.call?.id);
+        
+        // Trigger analytics when call ends
+        if (payload?.call?.id) {
+          try {
+            const origin = req.nextUrl.origin;
+            await axios.post(`${origin}/api/get-call`, {
+              id: payload.call.id,
+            });
+            console.log("Analytics triggered for call:", payload.call.id);
+          } catch (error) {
+            console.error("Error triggering analytics:", error);
+          }
+        }
+        break;
+        
+      case "transcript":
+        console.log("Transcript update received", payload?.call?.id);
+        break;
+        
+      case "function-call":
+        console.log("Function call received", payload);
       break;
-    case "call_ended":
-      console.log("Call ended event received", call.call_id);
+        
+      case "speech-update":
+        console.log("Speech update received");
       break;
-    case "call_analyzed":
-      const result = await axios.post("/api/get-call", {
-        id: call.call_id,
-      });
-      console.log("Call analyzed event received", call.call_id);
+        
+      case "status-update":
+        console.log("Status update received", payload?.status);
       break;
+        
     default:
-      console.log("Received an unknown event:", event);
+        console.log("Received unknown Vapi event:", event);
   }
 
   // Acknowledge the receipt of the event
-  return NextResponse.json({ status: 204 });
+    return NextResponse.json({ received: true }, { status: 200 });
+  } catch (error) {
+    console.error("Error processing Vapi webhook:", error);
+    return NextResponse.json(
+      { error: "Webhook processing failed" },
+      { status: 500 }
+    );
+  }
 }

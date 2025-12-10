@@ -1,19 +1,114 @@
+import { CustomMetric } from "@/types/interview";
+
 export const SYSTEM_PROMPT =
   "You are an expert in analyzing interview transcripts. You must only use the main questions provided and not generate or infer additional questions.";
+
+// Helper to generate custom metrics section for the prompt
+const generateCustomMetricsPromptSection = (customMetrics: CustomMetric[]): string => {
+  if (!customMetrics || customMetrics.length === 0) {
+    return "";
+  }
+
+  const metricsInstructions = customMetrics.map((metric, index) => {
+    const metricType = (metric as any).type || "scale";
+    if (metricType === "boolean") {
+      return `   ${index + 1}. "${metric.title}" (Weight: ${metric.weight}/10) [BOOLEAN - Yes/No]:
+      - ${metric.description}
+      - This is a YES/NO question. Score MUST be either 10 (YES, the criterion is met) or 1 (NO, the criterion is NOT met)
+      - If there is NO evidence in the transcript to determine this, score MUST be 1`;
+    }
+    return `   ${index + 1}. "${metric.title}" (Weight: ${metric.weight}/10) [SCALE 0-10]:
+      - ${metric.description}
+      - Score from 0-10 based ONLY on evidence found in the transcript
+      - CRITICAL: If there is NO evidence or insufficient information to evaluate this metric, the score MUST be 1 or 2 (not a random middle score)
+      - Only give high scores (7-10) if there is CLEAR, STRONG evidence in the transcript`;
+  }).join("\n");
+
+  return `
+5. CUSTOM METRICS EVALUATION:
+   Evaluate the candidate on the following custom metrics defined by the interviewer.
+   
+   ⚠️ CRITICAL SCORING RULES:
+   - You MUST base scores ONLY on what is explicitly stated or demonstrated in the transcript
+   - If a metric cannot be evaluated due to lack of information, give a LOW score (1-2), NOT a middle score
+   - Do NOT assume or infer qualities that are not demonstrated
+   - Do NOT give average scores (4-6) just because you're unsure - be honest with low scores when evidence is lacking
+   
+${metricsInstructions}
+
+   For each custom metric, provide:
+   - metricId: The exact metric ID provided
+   - title: The metric title
+   - score: A score (see type above - either 0-10 scale or 1/10 boolean)
+   - feedback: Brief feedback explaining the score - if low score due to lack of evidence, say "Insufficient evidence in transcript"
+   - weight: The metric weight
+   - type: "scale" or "boolean"
+
+6. WEIGHTED OVERALL SCORE:
+   Calculate the weighted overall score based on the custom metrics:
+   - Each custom metric contributes (metric_score * metric_weight / total_weight) to the final score
+   - Convert to a 0-100 scale
+   - This should reflect how well the candidate performed across all custom metrics, weighted by importance`;
+};
+
+// Helper to generate custom metrics JSON structure
+const generateCustomMetricsJsonStructure = (customMetrics: CustomMetric[]): string => {
+  if (!customMetrics || customMetrics.length === 0) {
+    return "";
+  }
+
+  return `,
+  "customMetrics": [
+    {
+      "metricId": string,    // The exact ID from the metric definition
+      "title": string,       // The metric title
+      "score": number,       // Score: 0-10 for scale, 1 or 10 for boolean
+      "feedback": string,    // Brief feedback - say "Insufficient evidence" if applicable
+      "weight": number,      // The metric weight
+      "type": string         // "scale" or "boolean"
+    }
+  ],
+  "weightedOverallScore": number  // Calculated weighted score (0-100)`;
+};
 
 export const getInterviewAnalyticsPrompt = (
   interviewTranscript: string,
   mainInterviewQuestions: string,
-) => `Analyse the following interview transcript and provide structured feedback:
+  customMetrics?: CustomMetric[],
+) => {
+  const hasCustomMetrics = customMetrics && customMetrics.length > 0;
+  const customMetricsSection = generateCustomMetricsPromptSection(customMetrics || []);
+  const customMetricsJson = generateCustomMetricsJsonStructure(customMetrics || []);
 
+  // Provide metric IDs to the AI for reference
+  const metricIdsReference = hasCustomMetrics 
+    ? `\n\nCustom Metric IDs for reference:\n${customMetrics!.map(m => `- "${m.title}": ID = "${m.id}"`).join("\n")}\n`
+    : "";
+
+  // Check if CV is attached (transcript will contain === ATTACHED CV === marker)
+  const hasCVAttached = interviewTranscript.includes("=== ATTACHED CV ===");
+  const cvInstructions = hasCVAttached 
+    ? `
+
+⚠️ IMPORTANT: This candidate has an ATTACHED CV included above. You MUST use BOTH the CV content AND the interview transcript to evaluate the candidate:
+- Use the CV to assess qualifications, experience, skills, and background
+- Use the interview transcript to assess communication, responses, and interview performance
+- For custom metrics, consider evidence from BOTH sources
+- If a metric can be evaluated from the CV (e.g., technical skills, experience), use that information even if not explicitly discussed in the interview
+- Give higher scores if the CV provides strong evidence for a metric, even if the interview didn't cover it directly
+`
+    : "";
+
+  return `Analyse the following interview content and provide structured feedback:
+${cvInstructions}
 ###
-Transcript: ${interviewTranscript}
+Content: ${interviewTranscript}
 
 Main Interview Questions:
 ${mainInterviewQuestions}
+${metricIdsReference}
 
-
-Based on this transcript and the provided main interview questions, generate the following analytics in JSON format:
+Based on ${hasCVAttached ? "the CV content, interview transcript," : "the transcript"} and the provided main interview questions, generate the following analytics in JSON format:
 1. Overall Score (0-100) and Overall Feedback (60 words) - take into account the following factors:
    - Communication Skills: Evaluate the use of language, grammar, and vocabulary. Assess if the interviewee communicated effectively and clearly.
    - Time Taken to Answer: Consider if the interviewee answered promptly or took too long. Note if they were concise or tended to ramble.
@@ -50,13 +145,16 @@ Based on this transcript and the provided main interview questions, generate the
             b) Any follow-up questions that were asked related to this main question and their answers
           - The summary should be a cohesive paragraph encompassing all related information for each main question
 4. Create a 10 to 15 words summary regarding the soft skills considering factors such as confidence, leadership, adaptability, critical thinking and decision making.
+${customMetricsSection}
+
 Ensure the output is in valid JSON format with the following structure:
 {
   "overallScore": number,
   "overallFeedback": string,
   "communication": { "score": number, "feedback": string },
   "questionSummaries": [{ "question": string, "summary": string }],
-  "softSkillSummary: string
+  "softSkillSummary": string${customMetricsJson}
 }
 
-IMPORTANT: Only use the main questions provided. Do not generate or infer additional questions such as follow-up questions.`;
+IMPORTANT: Only use the main questions provided. Do not generate or infer additional questions such as follow-up questions.${hasCustomMetrics ? "\nIMPORTANT: You MUST evaluate ALL custom metrics provided and include them in the response. Use the exact metric IDs provided." : ""}`
+};

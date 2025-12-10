@@ -5,7 +5,7 @@ export interface Response {
   interview_id: string;
   duration: number;
   call_id: string;
-  details: any;
+  details: any; // Contains attached_cv: { text, url, fileName } if CV was attached
   is_analysed: boolean;
   email: string;
   is_ended: boolean;
@@ -13,6 +13,18 @@ export interface Response {
   analytics: any;
   candidate_status: string;
   tab_switch_count: number;
+  // Legacy field - kept for backward compatibility with existing CV-only uploads
+  cv_url?: string | null;
+}
+
+// Individual custom metric score result
+export interface CustomMetricScore {
+  metricId: string;
+  title: string;
+  score: number; // Score from 0-10 for scale, 1 or 10 for boolean
+  feedback: string;
+  weight: number; // Original weight for reference
+  type: "scale" | "boolean"; // Metric type
 }
 
 export interface Analytics {
@@ -25,6 +37,10 @@ export interface Analytics {
     question: string;
     summary: string;
   }>;
+  // Custom metrics scores (when custom metrics are defined)
+  customMetrics?: CustomMetricScore[];
+  // Weighted overall score (calculated from custom metrics when available)
+  weightedOverallScore?: number;
 }
 
 export interface FeedbackData {
@@ -52,7 +68,22 @@ export interface CallData {
   opt_out_sensitive_data_storage: boolean;
   start_timestamp: number;
   end_timestamp: number;
-  transcript: string;
+  transcript?: string;
+  // CV upload specific fields
+  details?: {
+    source?: string;
+    fileName?: string;
+    cvText?: string;
+    extractedInfo?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+    };
+    call_analysis?: {
+      call_summary?: string;
+      user_sentiment?: string;
+    };
+  };
   transcript_object: {
     role: "agent" | "user";
     content: string;

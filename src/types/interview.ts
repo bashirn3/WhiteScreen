@@ -9,6 +9,18 @@ export interface Quote {
   call_id: string;
 }
 
+// Custom metric types
+export type MetricType = "scale" | "boolean";
+
+// Custom metric definition for interview evaluation
+export interface CustomMetric {
+  id: string;
+  title: string;
+  description: string;
+  weight: number; // Weight from 0-10, all weights should sum to 10
+  type: MetricType; // "scale" (0-10) or "boolean" (yes=10, no=1)
+}
+
 export interface InterviewBase {
   user_id: string;
   organization_id: string;
@@ -23,6 +35,7 @@ export interface InterviewBase {
   response_count: bigint;
   job_context?: string;
   logo_url?: string | null;
+  custom_metrics?: CustomMetric[]; // Custom evaluation metrics
 }
 
 export interface InterviewDetails {
