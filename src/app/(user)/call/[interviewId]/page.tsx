@@ -3,10 +3,14 @@
 import { useInterviews } from "@/contexts/interviews.context";
 import { useEffect, useState } from "react";
 import Call from "@/components/call";
+import VideoInterviewExperience from "@/components/call/VideoInterviewExperience";
 import Image from "next/image";
 import { ArrowUpRightSquareIcon } from "lucide-react";
 import { Interview } from "@/types/interview";
 import LoaderWithText from "@/components/loaders/loader-with-text/loaderWithText";
+
+// Feature flag for new video experience
+const USE_NEW_VIDEO_EXPERIENCE = true;
 
 type Props = {
   params: {
@@ -110,6 +114,41 @@ function InterviewInterface({ params }: Props) {
     fetchinterview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Use new video experience
+  if (USE_NEW_VIDEO_EXPERIENCE && interview && isActive) {
+    return (
+      <div>
+        <div className="hidden md:block">
+          <VideoInterviewExperience 
+            interview={interview}
+            interviewerName="Alex"
+            interviewerAvatar="/default-interviewer.svg"
+          />
+        </div>
+        <div className="md:hidden flex flex-col items-center justify-center h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+          <div className="px-6 text-center">
+            <p className="text-white text-xl font-semibold mb-4">
+              {interview?.name}
+            </p>
+            <p className="text-gray-300 mb-6">
+              Please use a PC or laptop for the best interview experience.
+            </p>
+            <p className="text-gray-500 text-sm">
+              Powered by{" "}
+              <a
+                className="font-bold"
+                href="https://rapidscreen.my/"
+                target="_blank"
+              >
+                <span className="text-orange-500">Rapid</span><span className="text-gray-400">Screen</span>
+              </a>
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
