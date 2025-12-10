@@ -40,10 +40,25 @@ export async function POST(req: Request, res: Response) {
     let callResponse = callDetails.details;
     
     if (callDetails.is_analysed) {
+      // Recalculate weighted score on-the-fly to ensure it's always correct
+      let analytics = callDetails.analytics;
+      if (analytics?.customMetrics && analytics.customMetrics.length > 0) {
+        const totalWeight = analytics.customMetrics.reduce((sum: number, m: any) => sum + (m.weight || 0), 0);
+        if (totalWeight > 0) {
+          let weightedSum = 0;
+          for (const metric of analytics.customMetrics) {
+            weightedSum += ((metric.score || 0) * (metric.weight || 0));
+          }
+          // Weighted average on 0-10 scale, then multiply by 10 for 0-100 display
+          const weightedAverage = weightedSum / totalWeight;
+          analytics.weightedOverallScore = Math.round(weightedAverage * 10);
+          logger.info(`[get-call] Recalculated weighted score: ${analytics.weightedOverallScore} (sum=${weightedSum}, totalWeight=${totalWeight})`);
+        }
+      }
       return NextResponse.json(
         {
           callResponse,
-          analytics: callDetails.analytics,
+          analytics,
         },
         { status: 200 },
       );
@@ -72,7 +87,20 @@ export async function POST(req: Request, res: Response) {
   const startTime = vapiCall.startedAt ? new Date(vapiCall.startedAt).getTime() : Date.now();
   const endTime = vapiCall.endedAt ? new Date(vapiCall.endedAt).getTime() : Date.now();
   
+  // Preserve any existing data in details (like attached_cv from interview flow)
+  const existingDetails = callDetails.details || {};
+  
+  // Log if CV was attached during interview
+  if (existingDetails.attached_cv) {
+    logger.info(`[get-call] Found attached CV in existing details: ${existingDetails.attached_cv.fileName || 'unknown'}`);
+  } else {
+    logger.info(`[get-call] No attached CV found in existing details`);
+  }
+  
   callResponse = {
+    // Preserve existing details (attached_cv, etc.)
+    ...existingDetails,
+    
     call_id: vapiCall.id,
     start_timestamp: startTime,
     end_timestamp: endTime,
@@ -95,6 +123,11 @@ export async function POST(req: Request, res: Response) {
     // Preserve other Vapi data
     ...vapiCall,
   };
+  
+  // Log if CV was attached
+  if (existingDetails.attached_cv) {
+    logger.info(`[get-call] Preserving attached CV for call ${body.id}`);
+  }
   
   const duration = Math.round((endTime - startTime) / 1000);
 

@@ -350,11 +350,11 @@ function InterviewHome({ params, searchParams }: Props) {
   return (
     <div className="flex flex-col w-full h-full m-2 bg-white">
       {loading ? (
-        <div className="flex flex-col items-center justify-center h-[80%] w-full">
-          <LoaderWithText />
+        <div className="flex flex-col items-center justify-center h-[80%] w-full animate-fadeIn">
+          <LoaderWithText text="Loading interview..." />
         </div>
       ) : (
-        <>
+        <div className="animate-fadeIn">
           <div className="flex flex-row p-3 pt-4 justify-center gap-6 items-center sticky top-2 bg-white">
             <div className="font-bold text-md">{interview?.name}</div>
 
@@ -653,13 +653,14 @@ function InterviewHome({ params, searchParams }: Props) {
 
               <ScrollArea className="h-full p-1 rounded-md border-none">
                 {filterResponses().length > 0 ? (
-                  filterResponses().map((response) => (
+                  filterResponses().map((response, index) => (
                     <div
                       className={`p-2 rounded-md hover:bg-indigo-100 border-2 my-1 text-left text-xs ${
                         searchParams.call == response.call_id
                           ? "bg-indigo-200"
                           : "border-indigo-100"
-                      } flex flex-row justify-between cursor-pointer w-full`}
+                      } flex flex-row justify-between cursor-pointer w-full animate-slideInUp transition-all duration-200 hover:shadow-sm`}
+                      style={{ animationDelay: `${Math.min(index * 0.03, 0.2)}s` }}
                       key={response?.id}
                       onClick={() => {
                         router.push(
@@ -680,25 +681,31 @@ function InterviewHome({ params, searchParams }: Props) {
                         )}
                         <div className="flex items-center justify-between w-full">
                           <div className="flex flex-col my-auto">
-                            <div className="flex items-center gap-1">
-                              <p className="font-medium mb-[2px]">
-                                {response?.name
-                                  ? `${response?.name}'s Response`
-                                  : "Anonymous"}
-                              </p>
-                              {response?.details?.source === "cv_upload" && (
-                                <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full">
-                                  CV
-                                </span>
-                              )}
-                            </div>
-                            <p className="">
+                            <p className="font-medium mb-[2px]">
+                              {response?.name
+                                ? `${response?.name}'s Response`
+                                : "Anonymous"}
+                            </p>
+                            <p className="text-xs text-gray-500">
                               {formatTimestampToDateHHMM(
                                 String(response?.created_at),
                               )}
                             </p>
                           </div>
-                          <div className="flex flex-col items-center justify-center ml-auto flex-shrink-0">
+                          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+                            {/* CV badges */}
+                            {response?.details?.source === "cv_upload" && (
+                              <span className="text-[9px] bg-purple-50 text-purple-600 border border-purple-200 px-1.5 py-0.5 rounded font-medium">
+                                CV
+                              </span>
+                            )}
+                            {response?.details?.attached_cv?.text && !response?.details?.source && (
+                              <span className="text-[9px] bg-orange-50 text-orange-600 border border-orange-200 px-1.5 py-0.5 rounded font-medium">
+                                +CV
+                              </span>
+                            )}
+                            {/* Score and notification */}
+                            <div className="flex flex-col items-center justify-center">
                             {!response.is_viewed && (
                               <div className="w-4 h-4 flex items-center justify-center mb-1">
                                 <div className="text-indigo-500 text-xl leading-none">
@@ -736,6 +743,7 @@ function InterviewHome({ params, searchParams }: Props) {
                                   </TooltipProvider>
                                 )}
                             </div>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -764,7 +772,7 @@ function InterviewHome({ params, searchParams }: Props) {
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
       <Modal
         open={showColorPicker}

@@ -27,7 +27,29 @@ export const generateInterviewAnalytics = async (payload: {
       return { analytics: response.analytics as Analytics, status: 200 };
     }
 
-    const interviewTranscript = transcript || response.details?.transcript;
+    let interviewTranscript = transcript || response.details?.transcript || "";
+    
+    // If candidate has attached CV (from interview flow), prepend it to the transcript for evaluation
+    const attachedCv = response.details?.attached_cv;
+    if (attachedCv?.text) {
+      const cvTextLength = attachedCv.text.length;
+      const cvSection = `
+=== ATTACHED CV ===
+${attachedCv.text}
+=== END OF CV ===
+
+=== INTERVIEW TRANSCRIPT ===
+`;
+      interviewTranscript = cvSection + interviewTranscript;
+      console.log("[Analytics] Including attached CV in evaluation:", {
+        cvFileName: attachedCv.fileName,
+        cvTextLength: cvTextLength,
+        totalContentLength: interviewTranscript.length
+      });
+    } else {
+      console.log("[Analytics] No attached CV found for this response");
+    }
+    
     const questions = interview?.questions || [];
     const customMetrics: CustomMetric[] = interview?.custom_metrics || [];
     
@@ -71,17 +93,28 @@ export const generateInterviewAnalytics = async (payload: {
       (q: Question) => q.question,
     );
 
-    // If custom metrics exist, calculate weighted overall score if not already calculated
+    // If custom metrics exist, ALWAYS calculate weighted overall score ourselves (don't trust LLM calculation)
     if (customMetrics.length > 0 && analyticsResponse.customMetrics) {
       const totalWeight = customMetrics.reduce((sum, m) => sum + m.weight, 0);
       
-      if (!analyticsResponse.weightedOverallScore && totalWeight > 0) {
+      if (totalWeight > 0) {
         let weightedSum = 0;
         for (const metricScore of analyticsResponse.customMetrics) {
+          // score is 0-10, weight is the metric weight
           weightedSum += (metricScore.score * metricScore.weight);
         }
-        // Convert to 0-100 scale (metrics are 0-10, so multiply by 10)
-        analyticsResponse.weightedOverallScore = Math.round((weightedSum / totalWeight) * 10);
+        // Weighted average: (sum of score*weight) / total_weight
+        // This gives us a 0-10 score, then multiply by 10 for 0-100 display
+        const weightedAverage = weightedSum / totalWeight;
+        analyticsResponse.weightedOverallScore = Math.round(weightedAverage * 10);
+        
+        console.log("[Analytics] Weighted score calculation:", {
+          metrics: analyticsResponse.customMetrics.map((m: any) => ({ title: m.title, score: m.score, weight: m.weight })),
+          weightedSum,
+          totalWeight,
+          weightedAverage,
+          finalScore: analyticsResponse.weightedOverallScore
+        });
       }
     }
 

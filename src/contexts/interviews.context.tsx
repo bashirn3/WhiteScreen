@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useContext, ReactNode, useEffect, useRef } from "react";
+import React, { useState, useContext, ReactNode, useEffect, useRef, useCallback } from "react";
 import { Interview } from "@/types/interview";
 import { InterviewService } from "@/services/interviews.service";
 import { useClerk, useOrganization } from "@clerk/nextjs";
@@ -11,7 +11,10 @@ interface InterviewContextProps {
   getInterviewById: (interviewId: string) => Interview | null | any;
   interviewsLoading: boolean;
   setInterviewsLoading: (interviewsLoading: boolean) => void;
-  fetchInterviews: () => void;
+  fetchInterviews: () => Promise<void>;
+  updateInterviewInState: (interview: Interview) => void;
+  addInterviewToState: (interview: Interview) => void;
+  removeInterviewFromState: (interviewId: string) => void;
 }
 
 export const InterviewContext = React.createContext<InterviewContextProps>({
@@ -20,7 +23,10 @@ export const InterviewContext = React.createContext<InterviewContextProps>({
   getInterviewById: () => null,
   setInterviewsLoading: () => undefined,
   interviewsLoading: false,
-  fetchInterviews: () => {},
+  fetchInterviews: async () => {},
+  updateInterviewInState: () => {},
+  addInterviewToState: () => {},
+  removeInterviewFromState: () => {},
 });
 
 interface InterviewProviderProps {
@@ -35,20 +41,37 @@ export function InterviewProvider({ children }: InterviewProviderProps) {
   const lastOrgIdRef = useRef<string | null>(null);
   const lastUserIdRef = useRef<string | null>(null);
 
-  const fetchInterviews = async () => {
+  const fetchInterviews = useCallback(async () => {
     try {
       setInterviewsLoading(true);
       const response = await InterviewService.getAllInterviews(
         user?.id as string,
         organization?.id as string,
       );
-      setInterviewsLoading(false);
-      setInterviews(response);
+      setInterviews(response || []);
     } catch (error) {
       console.error(error);
+    } finally {
+      setInterviewsLoading(false);
     }
-    setInterviewsLoading(false);
-  };
+  }, [user?.id, organization?.id]);
+
+  // Optimistic update functions for smoother UX
+  const updateInterviewInState = useCallback((updatedInterview: Interview) => {
+    setInterviews(prev => 
+      prev.map(interview => 
+        interview.id === updatedInterview.id ? updatedInterview : interview
+      )
+    );
+  }, []);
+
+  const addInterviewToState = useCallback((newInterview: Interview) => {
+    setInterviews(prev => [newInterview, ...prev]);
+  }, []);
+
+  const removeInterviewFromState = useCallback((interviewId: string) => {
+    setInterviews(prev => prev.filter(interview => interview.id !== interviewId));
+  }, []);
 
   const getInterviewById = async (interviewId: string) => {
     const response = await InterviewService.getInterviewById(interviewId);
@@ -82,6 +105,9 @@ export function InterviewProvider({ children }: InterviewProviderProps) {
         interviewsLoading,
         setInterviewsLoading,
         fetchInterviews,
+        updateInterviewInState,
+        addInterviewToState,
+        removeInterviewFromState,
       }}
     >
       {children}
