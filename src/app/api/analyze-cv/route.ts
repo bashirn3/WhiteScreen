@@ -8,12 +8,6 @@ import { ResponseService } from "@/services/responses.service";
 import { logger } from "@/lib/logger";
 import { createClient } from "@supabase/supabase-js";
 
-// Initialize Supabase client for storage
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 const BUCKET_NAME = "candidate-cvs";
 
 /**
@@ -62,6 +56,12 @@ interface CVUploadResult {
 
 export async function POST(req: Request) {
   try {
+    // Initialize Supabase client inside handler (not at module level)
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    
     const formData = await req.formData();
     const interviewId = formData.get("interviewId") as string;
     const files = formData.getAll("files") as File[];
