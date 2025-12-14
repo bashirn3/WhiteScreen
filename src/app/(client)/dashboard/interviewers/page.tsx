@@ -3,7 +3,7 @@
 import { useInterviewers } from "@/contexts/interviewers.context";
 import React from "react";
 import InterviewerCard from "@/components/dashboard/interviewer/interviewerCard";
-import CreateInterviewerButton from "@/components/dashboard/interviewer/createInterviewerButton";
+import { Users } from "lucide-react";
 
 function Interviewers() {
   const { interviewers, interviewersLoading } = useInterviewers();
@@ -18,6 +18,19 @@ function Interviewers() {
             style={{ animationDelay: `${i * 100}ms` }}
           />
         ))}
+      </div>
+    );
+  }
+
+  // Empty state when no interviewers exist
+  function EmptyState() {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <Users className="h-16 w-16 text-gray-300 mb-4" />
+        <h3 className="text-lg font-medium text-gray-700 mb-2">No Interviewers Yet</h3>
+        <p className="text-sm text-gray-500 max-w-md">
+          Contact your administrator to set up AI interviewers for your organization.
+        </p>
       </div>
     );
   }
@@ -41,7 +54,7 @@ function Interviewers() {
         ) : (
           <>
             {interviewers.length === 0 ? (
-              <CreateInterviewerButton />
+              <EmptyState />
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6">
                 {interviewers.map((interviewer) => (
