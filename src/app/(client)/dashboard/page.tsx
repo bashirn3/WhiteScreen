@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useOrganization, useUser } from "@clerk/nextjs";
-import InterviewCard from "@/components/dashboard/interview/interviewCard";
+import InterviewCard, { InterviewCardSkeleton } from "@/components/dashboard/interview/interviewCard";
 import CreateInterviewCard from "@/components/dashboard/interview/createInterviewCard";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { InterviewService } from "@/services/interviews.service";
@@ -31,14 +31,14 @@ function Interviews() {
   // Full page skeleton loader
   function PageSkeleton() {
     return (
-      <main className="p-8 pt-0 ml-12 mr-auto rounded-md animate-pulse">
+      <main className="p-8 pt-0 ml-12 mr-auto rounded-md">
         <div className="flex flex-col items-left">
-          <div className="h-8 w-48 bg-gray-200 rounded-lg mt-8" />
-          <div className="h-4 w-64 bg-gray-100 rounded mt-2" />
+          <div className="h-8 w-48 bg-gray-200 rounded-lg mt-8 animate-pulse" />
+          <div className="h-4 w-64 bg-gray-100 rounded mt-2 animate-pulse" />
           <div className="mt-6 flex flex-wrap gap-4">
-            <div className="h-[270px] w-56 rounded-2xl bg-gray-100" />
-            <div className="h-[270px] w-56 rounded-2xl bg-gray-100" />
-            <div className="h-[270px] w-56 rounded-2xl bg-gray-100" />
+            <InterviewCardSkeleton />
+            <InterviewCardSkeleton />
+            <InterviewCardSkeleton />
           </div>
         </div>
       </main>
@@ -48,9 +48,9 @@ function Interviews() {
   function InterviewsLoader() {
     return (
       <>
-        <div className="h-[270px] w-56 animate-pulse rounded-2xl bg-gray-100" />
-        <div className="h-[270px] w-56 animate-pulse rounded-2xl bg-gray-100 animation-delay-100" />
-        <div className="h-[270px] w-56 animate-pulse rounded-2xl bg-gray-100 animation-delay-200" />
+        <InterviewCardSkeleton />
+        <InterviewCardSkeleton />
+        <InterviewCardSkeleton />
       </>
     );
   }
