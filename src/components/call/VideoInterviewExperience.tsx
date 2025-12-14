@@ -224,11 +224,11 @@ export default function VideoInterviewExperience({
       })
       .then(devices => {
         if (devices) {
-          const videoInputs = devices.filter(d => d.kind === "videoinput");
-          const audioInputs = devices.filter(d => d.kind === "audioinput");
+        const videoInputs = devices.filter(d => d.kind === "videoinput");
+        const audioInputs = devices.filter(d => d.kind === "audioinput");
           console.log("[Media] Found devices - video:", videoInputs.length, "audio:", audioInputs.length);
-          setVideoDevices(videoInputs);
-          setAudioDevices(audioInputs);
+        setVideoDevices(videoInputs);
+        setAudioDevices(audioInputs);
           if (videoInputs.length > 0) setSelectedVideoDevice(videoInputs[0].deviceId);
           if (audioInputs.length > 0) setSelectedAudioDevice(audioInputs[0].deviceId);
         }
@@ -394,7 +394,8 @@ export default function VideoInterviewExperience({
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
+        // Only add chunks if recording is still active (ref not cleared)
+        if (event.data.size > 0 && mediaRecorderRef.current) {
           recordedChunksRef.current.push(event.data);
           console.log("[VideoRecording] Chunk recorded, size:", event.data.size);
         }
@@ -413,80 +414,86 @@ export default function VideoInterviewExperience({
   };
 
   // Stop video recording and upload
-  const stopVideoRecording = async () => {
-    if (!mediaRecorderRef.current) {
+  const stopVideoRecording = async (): Promise<string | null> => {
+    console.log("[VideoRecording] Stopping recording...");
+    console.log("[VideoRecording] MediaRecorder exists:", !!mediaRecorderRef.current);
+    console.log("[VideoRecording] Recorded chunks:", recordedChunksRef.current.length);
+    
+    const mediaRecorder = mediaRecorderRef.current;
+    
+    if (!mediaRecorder) {
       console.error("[VideoRecording] No MediaRecorder to stop");
       return null;
     }
     
+    // Clear the ref immediately to prevent any more chunks from being added
+    mediaRecorderRef.current = null;
+    
+    // Stop the recorder if it's still running
+    if (mediaRecorder.state === 'recording') {
+      console.log("[VideoRecording] Stopping MediaRecorder...");
+      mediaRecorder.stop();
+    } else if (mediaRecorder.state === 'paused') {
+      console.log("[VideoRecording] MediaRecorder was paused, stopping...");
+      mediaRecorder.stop();
+    }
+    
+    // Wait a bit for the onstop event to fire and final data to be collected
+    await new Promise(r => setTimeout(r, 300));
+    
     // Check if we have recorded data
-    if (recordedChunksRef.current.length === 0) {
+    const chunks = [...recordedChunksRef.current]; // Copy chunks
+    recordedChunksRef.current = []; // Clear chunks immediately
+    
+    if (chunks.length === 0) {
       console.error("[VideoRecording] No recorded chunks available");
       return null;
     }
     
-    return new Promise<string | null>((resolve) => {
-      const mediaRecorder = mediaRecorderRef.current!;
+    console.log("[VideoRecording] Processing", chunks.length, "chunks");
+    
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    console.log("[VideoRecording] Blob size:", blob.size);
+    
+    if (blob.size === 0) {
+      console.error("[VideoRecording] Empty blob, no video to upload");
+      return null;
+    }
+    
+    try {
+      // Upload to Supabase
+      const supabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
       
-      mediaRecorder.onstop = async () => {
-        console.log("[VideoRecording] Stopped, chunks:", recordedChunksRef.current.length);
-        
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
-        console.log("[VideoRecording] Blob size:", blob.size);
-        recordedChunksRef.current = [];
-        
-        if (blob.size === 0) {
-          console.error("[VideoRecording] Empty blob, no video to upload");
-          resolve(null);
-          return;
-        }
-        
-        try {
-          // Upload to Supabase
-          const supabase = createClient(
-            process.env.NEXT_PUBLIC_SUPABASE_URL!,
-            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-          );
-          
-          // Use callIdRef to get latest callId (avoids stale closure)
-          const currentCallId = callIdRef.current || `unknown_${Date.now()}`;
-          const fileName = `${currentCallId}_${Date.now()}.webm`;
-          console.log("[VideoRecording] Uploading to:", fileName);
-          
-          const { data, error } = await supabase.storage
-            .from('videos')
-            .upload(fileName, blob, {
-              contentType: 'video/webm',
-              upsert: false
-            });
-          
-          if (error) {
-            console.error("[VideoRecording] Upload error:", error);
-            resolve(null);
-            return;
-          }
-          
-          const { data: urlData } = supabase.storage
-            .from('videos')
-            .getPublicUrl(fileName);
-          
-          console.log("[VideoRecording] Uploaded successfully:", urlData.publicUrl);
-          resolve(urlData.publicUrl);
-        } catch (err) {
-          console.error("[VideoRecording] Upload failed:", err);
-          resolve(null);
-        }
-      };
+      // Use callIdRef to get latest callId (avoids stale closure)
+      const currentCallId = callIdRef.current || `unknown_${Date.now()}`;
+      const fileName = `${currentCallId}_${Date.now()}.webm`;
+      console.log("[VideoRecording] Uploading to videos bucket:", fileName);
       
-      // Make sure to stop if still recording
-      if (mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-      } else {
-        console.log("[VideoRecording] MediaRecorder state:", mediaRecorder.state);
-        // If not recording, still try to process any existing chunks
-        mediaRecorder.onstop(new Event('stop'));
+      const { data, error } = await supabase.storage
+        .from('videos')
+        .upload(fileName, blob, {
+          contentType: 'video/webm',
+          upsert: true
+        });
+      
+      if (error) {
+        console.error("[VideoRecording] Upload error:", error);
+        return null;
       }
-    });
+      
+      const { data: urlData } = supabase.storage
+        .from('videos')
+        .getPublicUrl(fileName);
+      
+      console.log("[VideoRecording] Uploaded successfully:", urlData.publicUrl);
+      return urlData.publicUrl;
+    } catch (err) {
+      console.error("[VideoRecording] Upload failed:", err);
+      return null;
+    }
   };
 
   // CV Upload handler
@@ -607,11 +614,11 @@ export default function VideoInterviewExperience({
       // Save response using ref (ensures we have the latest callId)
       if (callIdRef.current) {
         try {
-          await ResponseService.saveResponse({
-            is_ended: true,
-            tab_switch_count: tabSwitchCountRef.current,
-            tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
-            video_url: videoUrl,
+      await ResponseService.saveResponse({
+        is_ended: true,
+        tab_switch_count: tabSwitchCountRef.current,
+        tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
+        video_url: videoUrl,
           }, callIdRef.current);
           console.log("[Call] Response saved successfully");
         } catch (err) {
@@ -1647,24 +1654,24 @@ export default function VideoInterviewExperience({
           </div>
           
           <div className="h-14 flex items-center justify-between px-4">
-            <div className="flex items-center gap-2 text-white text-xs">
-              <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              <span className="text-gray-500">|</span>
-              <span className="truncate max-w-[150px]">{interview.name}</span>
+          <div className="flex items-center gap-2 text-white text-xs">
+            <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+            <span className="text-gray-500">|</span>
+            <span className="truncate max-w-[150px]">{interview.name}</span>
               <span className="text-gray-500">({elapsedTime} / {interview.time_duration || 10}min)</span>
-            </div>
-            
+          </div>
+          
             <div className="flex items-center gap-1">
               {/* Mic button with dropdown */}
               <div className="relative flex items-center">
-                <button
-                  onClick={toggleMute}
+            <button
+              onClick={toggleMute}
                   className={`p-2.5 rounded-l-full transition-colors ${
-                    isMuted ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
-                >
-                  {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-                </button>
+                isMuted ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
+              }`}
+            >
+              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+            </button>
                 <button
                   onClick={() => setShowDeviceDropdown(showDeviceDropdown === "audio" ? null : "audio")}
                   className={`p-2.5 rounded-r-full border-l border-white/20 transition-colors ${
@@ -1697,14 +1704,14 @@ export default function VideoInterviewExperience({
               
               {/* Camera button with dropdown */}
               <div className="relative flex items-center ml-1">
-                <button
-                  onClick={toggleVideo}
+            <button
+              onClick={toggleVideo}
                   className={`p-2.5 rounded-l-full transition-colors ${
-                    !isVideoOn ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
-                  }`}
-                >
-                  {isVideoOn ? <Video size={18} /> : <VideoOff size={18} />}
-                </button>
+                !isVideoOn ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
+              }`}
+            >
+              {isVideoOn ? <Video size={18} /> : <VideoOff size={18} />}
+            </button>
                 <button
                   onClick={() => setShowDeviceDropdown(showDeviceDropdown === "video" ? null : "video")}
                   className={`p-2.5 rounded-r-full border-l border-white/20 transition-colors ${
@@ -1734,22 +1741,22 @@ export default function VideoInterviewExperience({
                   </div>
                 )}
               </div>
-              
-              <button
-                onClick={endCall}
-                className="px-4 py-2.5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors ml-2"
-              >
-                <PhoneOff size={18} />
-              </button>
-            </div>
             
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={() => setShowTranscript(!showTranscript)}
+            <button
+              onClick={endCall}
+                className="px-4 py-2.5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors ml-2"
+            >
+              <PhoneOff size={18} />
+            </button>
+          </div>
+          
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={() => setShowTranscript(!showTranscript)}
                 className={`p-2.5 rounded-full transition-colors ${showTranscript ? "bg-purple-500 text-white" : "bg-white/10 text-white hover:bg-white/20"}`}
-              >
-                <MessageSquare size={18} />
-              </button>
+            >
+              <MessageSquare size={18} />
+            </button>
             </div>
           </div>
         </div>
