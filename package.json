@@ -99,6 +99,7 @@
     "@types/react-dom": "^18",
     "@types/regenerator-runtime": "^0.13.5",
     "autoprefixer": "^10.0.1",
+    "dotenv": "^17.2.3",
     "eslint": "^8",
     "eslint-config-next": "^14.2.35",
     "eslint-config-prettier": "^10.0.1",

@@ -6889,6 +6889,11 @@ dot-case@^3.0.4:
     no-case "^3.0.4"
     tslib "^2.0.3"
 
+dotenv@^17.2.3:
+  version "17.2.3"
+  resolved "https://registry.npmjs.org/dotenv/-/dotenv-17.2.3.tgz"
+  integrity sha512-JVUnt+DUIzu87TABbhPmNfVdBDt18BLOWjMUFJMSi/Qqg7NTYtabbvSNJGOJ7afbRuv9D/lngizHtP7QyLQ+9w==
+
 duck@^0.1.12:
   version "0.1.12"
   resolved "https://registry.npmjs.org/duck/-/duck-0.1.12.tgz"
@@ -9388,6 +9393,7 @@ raf@^3.4.1:
     jspdf-autotable "^5.0.2"
     jszip "^3.10.1"
     langchain "^0.1.4"
+    lottie-web "^5.13.0"
     lucide-react "^0.294.0"
     mammoth "^1.11.0"
     marked "^13.0.3"
@@ -10635,6 +10641,7 @@ uuid@^9.0.0:
     jspdf-autotable "^5.0.2"
     jszip "^3.10.1"
     langchain "^0.1.4"
+    lottie-web "^5.13.0"
     lucide-react "^0.294.0"
     mammoth "^1.11.0"
     marked "^13.0.3"

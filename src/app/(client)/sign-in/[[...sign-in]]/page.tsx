@@ -63,21 +63,22 @@ function SignInPage() {
 
   return (
     <div className="min-h-screen w-full bg-white flex overflow-hidden">
-      {/* Left Side - Background Image */}
-      <div className="hidden lg:flex lg:w-1/2 p-4">
-        <div className="relative w-full h-full rounded-[24px] overflow-hidden">
+      {/* Left Side - Background Image (700x984) */}
+      <div className="hidden lg:flex lg:w-[45%] h-screen items-center justify-start pl-3 py-3">
+        <div className="relative rounded-[24px] overflow-hidden h-full" style={{ aspectRatio: '700/984' }}>
           <Image
             src="/auth-bg.png"
             alt="RapidScreen"
-            fill
-            className="object-cover"
+            width={700}
+            height={984}
+            className="h-full w-auto object-contain"
             priority
           />
         </div>
       </div>
 
       {/* Right Side - Sign In Form */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center px-8 py-12">
+      <div className="w-full lg:w-[55%] flex items-center justify-center px-8 py-12">
         <div className="w-full max-w-md space-y-6">
           {/* Mobile Logo */}
           <div className="lg:hidden text-center mb-8">

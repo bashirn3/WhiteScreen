@@ -4,10 +4,9 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Copy, CopyCheck } from "lucide-react";
+import { Copy, CopyCheck, Loader2 } from "lucide-react";
 import { ResponseService } from "@/services/responses.service";
 import axios from "axios";
-import MiniLoader from "@/components/loaders/mini-loader/miniLoader";
 import { InterviewerService } from "@/services/interviewers.service";
 import { usePageTransition } from "@/components/PageTransition";
 
@@ -21,10 +20,34 @@ interface Props {
 
 const base_url = process.env.NEXT_PUBLIC_LIVE_URL;
 
+// Skeleton loader for interview card
+function InterviewCardSkeleton() {
+  return (
+    <div className="w-[250px] min-w-[200px] max-w-[272px] h-[250px] bg-[#F9F9FA] rounded-[20px] shrink-0 overflow-hidden animate-pulse">
+      <div className="h-full flex flex-col">
+        {/* Title Area Skeleton */}
+        <div className="relative flex-1 flex items-center justify-center bg-gray-200/50 m-3 mb-0 rounded-[16px]">
+          <div className="h-4 w-32 bg-gray-300 rounded" />
+          <div className="absolute right-3 top-3">
+            <div className="h-7 w-7 bg-gray-300 rounded-md" />
+          </div>
+        </div>
+        {/* Footer Skeleton */}
+        <div className="flex items-center justify-between px-4 py-4">
+          <div className="h-10 w-10 bg-gray-300 rounded-full" />
+          <div className="h-4 w-24 bg-gray-300 rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
   const [copied, setCopied] = useState(false);
   const [responseCount, setResponseCount] = useState<number | null>(null);
-  const [isFetching, setIsFetching] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState({ current: 0, total: 0 });
   const [img, setImg] = useState("");
   const { navigateWithTransition } = usePageTransition();
 
@@ -35,44 +58,49 @@ function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
       setImg(interviewer.image);
     };
     fetchInterviewer();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [interviewerId]);
 
   useEffect(() => {
     const fetchResponses = async () => {
+      setIsLoading(true);
       try {
         const responses = await ResponseService.getAllResponses(id);
         setResponseCount(responses.length);
-        if (responses.length > 0) {
-          setIsFetching(true);
-          for (const response of responses) {
-            if (!response.is_analysed) {
-              try {
-                const result = await axios.post("/api/get-call", {
-                  id: response.call_id,
-                });
-
-                if (result.status !== 200) {
-                  throw new Error(`HTTP error! status: ${result.status}`);
-                }
-              } catch (error) {
-                console.error(
-                  `Failed to call api/get-call for response id ${response.call_id}:`,
-                  error,
-                );
+        setIsLoading(false);
+        
+        // Check for unanalyzed responses
+        const unanalyzed = responses.filter(r => !r.is_analysed);
+        if (unanalyzed.length > 0) {
+          setIsAnalyzing(true);
+          setAnalyzeProgress({ current: 0, total: unanalyzed.length });
+          
+          for (let i = 0; i < unanalyzed.length; i++) {
+            const response = unanalyzed[i];
+            setAnalyzeProgress({ current: i + 1, total: unanalyzed.length });
+            try {
+              const result = await axios.post("/api/get-call", {
+                id: response.call_id,
+              });
+              if (result.status !== 200) {
+                throw new Error(`HTTP error! status: ${result.status}`);
               }
+            } catch (error) {
+              console.error(
+                `Failed to call api/get-call for response id ${response.call_id}:`,
+                error,
+              );
             }
           }
-          setIsFetching(false);
+          setIsAnalyzing(false);
         }
       } catch (error) {
         console.error(error);
+        setIsLoading(false);
       }
     };
 
     fetchResponses();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [id]);
 
   const copyToClipboard = () => {
     navigator.clipboard
@@ -99,29 +127,40 @@ function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
       );
   };
 
+  // Show skeleton while loading initial data
+  if (isLoading) {
+    return <InterviewCardSkeleton />;
+  }
+
   return (
     <div
       onClick={() => {
-        if (!isFetching) {
+        if (!isAnalyzing) {
           navigateWithTransition(`/interviews/${id}`);
         }
       }}
       style={{
-        pointerEvents: isFetching ? "none" : "auto",
-        cursor: isFetching ? "default" : "pointer",
+        pointerEvents: isAnalyzing ? "none" : "auto",
+        cursor: isAnalyzing ? "default" : "pointer",
       }}
-      className="w-[250px] min-w-[200px] max-w-[272px] h-[250px] bg-[#F9F9FA] rounded-[20px] shrink-0 overflow-hidden transition-all duration-300 ease-out hover:shadow-md"
+      className="relative w-[250px] min-w-[200px] max-w-[272px] h-[250px] bg-[#F9F9FA] rounded-[20px] shrink-0 overflow-hidden transition-all duration-300 ease-out hover:shadow-md"
     >
-      <div className={`h-full flex flex-col ${isFetching ? "opacity-60" : ""}`}>
+      {/* Analysis Overlay */}
+      {isAnalyzing && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm rounded-[20px]">
+          <Loader2 className="h-8 w-8 text-indigo-600 animate-spin mb-3" />
+          <p className="text-xs font-medium text-gray-700">Analyzing responses...</p>
+          <p className="text-[10px] text-gray-500 mt-1">
+            {analyzeProgress.current} of {analyzeProgress.total}
+          </p>
+        </div>
+      )}
+
+      <div className="h-full flex flex-col">
         {/* Title Area */}
         <div className="relative flex-1 flex items-center justify-center bg-indigo-50/70 m-3 mb-0 rounded-[16px]">
           <p className="mx-6 text-center text-sm font-semibold text-gray-900">
             {name}
-            {isFetching && (
-              <span className="block mt-1">
-                <MiniLoader />
-              </span>
-            )}
           </p>
 
           {/* Copy Button */}
@@ -157,7 +196,7 @@ function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <div className="h-full w-full bg-gray-200" />
+                <div className="h-full w-full bg-gray-200 animate-pulse" />
               )}
             </div>
           </div>
@@ -173,5 +212,8 @@ function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
     </div>
   );
 }
+
+// Export skeleton for use in parent components
+export { InterviewCardSkeleton };
 
 export default InterviewCard;
