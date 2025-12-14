@@ -304,8 +304,13 @@ export async function POST(req: Request) {
     );
   } catch (error) {
     logger.error("Error in CV analysis:", error as Error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error("CV Analysis Error Details:", {
+      message: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: `Internal server error: ${errorMessage}` },
       { status: 500 }
     );
   }
