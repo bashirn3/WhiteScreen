@@ -1,14 +1,15 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Copy } from "lucide-react";
-import { CopyCheck } from "lucide-react";
+import { Copy, CopyCheck } from "lucide-react";
 import { ResponseService } from "@/services/responses.service";
 import axios from "axios";
 import MiniLoader from "@/components/loaders/mini-loader/miniLoader";
 import { InterviewerService } from "@/services/interviewers.service";
+import { usePageTransition } from "@/components/PageTransition";
 
 interface Props {
   name: string | null;
@@ -25,6 +26,7 @@ function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
   const [responseCount, setResponseCount] = useState<number | null>(null);
   const [isFetching, setIsFetching] = useState(false);
   const [img, setImg] = useState("");
+  const { navigateWithTransition } = usePageTransition();
 
   useEffect(() => {
     const fetchInterviewer = async () => {
@@ -98,60 +100,77 @@ function InterviewCard({ name, interviewerId, id, url, readableSlug }: Props) {
   };
 
   return (
-    <a
-      href={`/interviews/${id}`}
+    <div
+      onClick={() => {
+        if (!isFetching) {
+          navigateWithTransition(`/interviews/${id}`);
+        }
+      }}
       style={{
         pointerEvents: isFetching ? "none" : "auto",
         cursor: isFetching ? "default" : "pointer",
       }}
+      className="w-[250px] min-w-[200px] max-w-[272px] h-[250px] bg-[#F9F9FA] rounded-[20px] shrink-0 overflow-hidden transition-all duration-300 ease-out hover:shadow-md"
     >
-      <Card className="relative p-0 mt-4 inline-block cursor-pointer h-60 w-56 ml-1 mr-3 rounded-xl shrink-0 overflow-hidden shadow-md transition-all duration-300 ease-out hover:scale-[1.02] hover:shadow-lg">
-        <CardContent className={`p-0 ${isFetching ? "opacity-60" : ""}`}>
-          <div className="w-full h-40 overflow-hidden bg-orange-600 flex items-center text-center">
-            <CardTitle className="w-full mt-3 mx-2 text-white text-lg">
-              {name}
-              {isFetching && (
-                <div className="z-100 mt-[-5px]">
-                  <MiniLoader />
-                </div>
-              )}
-            </CardTitle>
-          </div>
-          <div className="flex flex-row items-center mx-4 ">
-            <div className="w-full overflow-hidden">
-              <Image
-                src={img}
-                alt="Picture of the interviewer"
-                width={70}
-                height={70}
-                className="object-cover object-center"
-              />
-            </div>
-            <div className="text-black text-sm font-semibold mt-2 mr-2 whitespace-nowrap">
-              Responses:{" "}
-              <span className="font-normal">
-                {responseCount?.toString() || 0}
+      <div className={`h-full flex flex-col ${isFetching ? "opacity-60" : ""}`}>
+        {/* Title Area */}
+        <div className="relative flex-1 flex items-center justify-center bg-indigo-50/70 m-3 mb-0 rounded-[16px]">
+          <p className="mx-6 text-center text-sm font-semibold text-gray-900">
+            {name}
+            {isFetching && (
+              <span className="block mt-1">
+                <MiniLoader />
               </span>
-            </div>
-          </div>
-          <div className="absolute top-2 right-2">
+            )}
+          </p>
+
+          {/* Copy Button */}
+          <div className="absolute right-3 top-3">
             <Button
-              className={`text-xs text-orange-600 px-1 h-6  ${
-                copied ? "bg-orange-300 text-white" : ""
+              className={`h-7 w-7 rounded-md p-0 ${
+                copied 
+                  ? "bg-indigo-600 text-white" 
+                  : "bg-white/80 text-gray-600 hover:bg-white"
               }`}
-              variant={"secondary"}
+              variant="ghost"
               onClick={(event) => {
                 event.stopPropagation();
                 event.preventDefault();
                 copyToClipboard();
               }}
             >
-              {copied ? <CopyCheck size={16} /> : <Copy size={16} />}
+              {copied ? <CopyCheck size={14} /> : <Copy size={14} />}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    </a>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-4 py-4">
+          <div className="flex items-center gap-2">
+            <div className="h-10 w-10 overflow-hidden rounded-full bg-white shadow-sm">
+              {img ? (
+                <Image
+                  src={img}
+                  alt="Picture of the interviewer"
+                  width={40}
+                  height={40}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="h-full w-full bg-gray-200" />
+              )}
+            </div>
+          </div>
+
+          <div className="text-sm text-gray-700">
+            Responses:{" "}
+            <span className="font-semibold text-gray-900">
+              {responseCount?.toString() || 0}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
