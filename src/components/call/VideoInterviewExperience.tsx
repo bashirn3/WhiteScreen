@@ -31,7 +31,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Interview } from "@/types/interview";
 import { toast } from "sonner";
-import Vapi from "@vapi-ai/web";
+import { Room, RoomEvent, Track } from 'livekit-client';
 import axios from "axios";
 import { ResponseService } from "@/services/responses.service";
 import { FeedbackService } from "@/services/feedback.service";
@@ -45,7 +45,8 @@ import {
 import { createClient } from "@supabase/supabase-js";
 import lottie from "lottie-web";
 
-const vapiClient = new Vapi(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || "");
+// LiveKit room instance
+let livekitRoom: Room | null = null;
 
 // Transcript message type
 interface TranscriptMessage {
@@ -134,6 +135,7 @@ export default function VideoInterviewExperience({
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const transcriptMessagesRef = useRef<TranscriptMessage[]>([]); // Track current transcript for event handlers
   
   // Speaking indicators
   const [isSpeaking, setIsSpeaking] = useState<"user" | "assistant" | null>(null);
@@ -157,6 +159,11 @@ export default function VideoInterviewExperience({
     tabSwitchCountRef.current = tabSwitchCount;
     tabSwitchEventsRef.current = tabSwitchEvents;
   }, [tabSwitchCount, tabSwitchEvents]);
+  
+  // Keep transcript ref in sync with state
+  useEffect(() => {
+    transcriptMessagesRef.current = transcriptMessages;
+  }, [transcriptMessages]);
 
   // Auto-scroll transcript when new messages appear
   const lastMessageCountRef = useRef(0);
@@ -288,17 +295,8 @@ export default function VideoInterviewExperience({
         videoRefConnected.current.srcObject = newStream;
       }
       
-      // Update Vapi's input device during active call
-      if (callState === "connected") {
-        try {
-          await vapiClient.setInputDevicesAsync({
-            videoDeviceId: deviceId
-          });
-          console.log("[switchVideoDevice] Updated Vapi video input to:", deviceId);
-        } catch (vapiErr) {
-          console.error("[switchVideoDevice] Failed to update Vapi video input:", vapiErr);
-        }
-      }
+      // Note: LiveKit handles device switching internally
+      // No need to call setInputDevicesAsync like with Vapi
     } catch (err) {
       console.error("Failed to switch video device:", err);
     }
@@ -327,17 +325,8 @@ export default function VideoInterviewExperience({
         videoRefConnected.current.srcObject = newStream;
       }
       
-      // Update Vapi's input device during active call
-      if (callState === "connected") {
-        try {
-          await vapiClient.setInputDevicesAsync({
-            audioDeviceId: deviceId
-          });
-          console.log("[switchAudioDevice] Updated Vapi audio input to:", deviceId);
-        } catch (vapiErr) {
-          console.error("[switchAudioDevice] Failed to update Vapi audio input:", vapiErr);
-        }
-      }
+      // Note: LiveKit handles device switching internally
+      // No need to call setInputDevicesAsync like with Vapi
     } catch (err) {
       console.error("Failed to switch audio device:", err);
     }
@@ -350,13 +339,10 @@ export default function VideoInterviewExperience({
         track.enabled = isMuted;
       });
       setIsMuted(!isMuted);
-      // Only call vapiClient.setMuted if we're in a connected call
-      if (callState === "connected") {
-        try {
-      vapiClient.setMuted(!isMuted);
-        } catch (e) {
-          console.warn("Could not set mute on vapi client:", e);
-        }
+      
+      // Update LiveKit microphone state if connected
+      if (callState === "connected" && livekitRoom) {
+        livekitRoom.localParticipant.setMicrophoneEnabled(isMuted);
       }
     }
   };
@@ -539,106 +525,108 @@ export default function VideoInterviewExperience({
   // Track last transcript to prevent duplicates
   const lastTranscriptRef = useRef<string>("");
   
-  // Setup Vapi event handlers
+  // LiveKit cleanup on unmount
   useEffect(() => {
-    // Speaking events
-    vapiClient.on("speech-start", () => {
-      setIsSpeaking("assistant");
-    });
+    // // Speaking events
+    // vapiClient.on("speech-start", () => {
+    //   setIsSpeaking("assistant");
+    // });
     
-    vapiClient.on("speech-end", () => {
-      setIsSpeaking(null);
-    });
+    // vapiClient.on("speech-end", () => {
+    //   setIsSpeaking(null);
+    // });
     
-    // Transcript events
-    vapiClient.on("message", (message: any) => {
-      if (message.type === "transcript") {
-        if (message.transcriptType === "partial") {
-          if (message.role === "assistant") {
-            setAssistantText(message.transcript);
-          } else {
-            setIsSpeaking("user");
-          }
-        } else if (message.transcriptType === "final") {
-          // Prevent duplicate messages
-          const messageKey = `${message.role}-${message.transcript}`;
-          if (lastTranscriptRef.current === messageKey) {
-            return;
-          }
-          lastTranscriptRef.current = messageKey;
+    // // Transcript events
+    // vapiClient.on("message", (message: any) => {
+    //   if (message.type === "transcript") {
+    //     if (message.transcriptType === "partial") {
+    //       if (message.role === "assistant") {
+    //         setAssistantText(message.transcript);
+    //       } else {
+    //         setIsSpeaking("user");
+    //       }
+    //     } else if (message.transcriptType === "final") {
+    //       // Prevent duplicate messages
+    //       const messageKey = `${message.role}-${message.transcript}`;
+    //       if (lastTranscriptRef.current === messageKey) {
+    //         return;
+    //       }
+    //       lastTranscriptRef.current = messageKey;
           
-          const newMessage: TranscriptMessage = {
-            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            role: message.role === "assistant" ? "assistant" : "user",
-            content: message.transcript,
-            timestamp: new Date()
-          };
+    //       const newMessage: TranscriptMessage = {
+    //         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    //         role: message.role === "assistant" ? "assistant" : "user",
+    //         content: message.transcript,
+    //         timestamp: new Date()
+    //       };
           
-          setTranscriptMessages(prev => [...prev, newMessage]);
-          setAssistantText("");
+    //       setTranscriptMessages(prev => [...prev, newMessage]);
+    //       setAssistantText("");
           
-          if (message.role === "user") {
-            setIsSpeaking(null);
-          }
-        }
-      }
-    });
+    //       if (message.role === "user") {
+    //         setIsSpeaking(null);
+    //       }
+    //     }
+    //   }
+    // });
     
-    // Call events
-    vapiClient.on("call-start", () => {
-      setCallState("connected");
-      setCallStartTime(new Date());
-      startVideoRecording();
+    // // Call events
+    // vapiClient.on("call-start", () => {
+    //   setCallState("connected");
+    //   setCallStartTime(new Date());
+    //   startVideoRecording();
       
-      // Re-attach video stream when call starts
-      setTimeout(() => {
-        if (videoRefConnected.current && videoStream) {
-          videoRefConnected.current.srcObject = videoStream;
-        }
-      }, 100);
+    //   // Re-attach video stream when call starts
+    //   setTimeout(() => {
+    //     if (videoRefConnected.current && videoStream) {
+    //       videoRefConnected.current.srcObject = videoStream;
+    //     }
+    //   }, 100);
       
-      // Slide in transcript panel after a short delay
-      setTimeout(() => {
-        setShowTranscript(true);
-      }, 300);
-    });
+    //   // Slide in transcript panel after a short delay
+    //   setTimeout(() => {
+    //     setShowTranscript(true);
+    //   }, 300);
+    // });
     
-    vapiClient.on("call-end", async () => {
-      console.log("[Call] Call ended, saving response for callId:", callIdRef.current);
-      setCallState("ended");
-      setIsSpeaking(null);
+    // vapiClient.on("call-end", async () => {
+    //   console.log("[Call] Call ended, saving response for callId:", callIdRef.current);
+    //   setCallState("ended");
+    //   setIsSpeaking(null);
       
-      // Stop recording and upload
-      const videoUrl = await stopVideoRecording();
+    //   // Stop recording and upload
+    //   const videoUrl = await stopVideoRecording();
       
-      // Save response using ref (ensures we have the latest callId)
-      if (callIdRef.current) {
-        try {
-      await ResponseService.saveResponse({
-        is_ended: true,
-        tab_switch_count: tabSwitchCountRef.current,
-        tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
-        video_url: videoUrl,
-          }, callIdRef.current);
-          console.log("[Call] Response saved successfully");
-        } catch (err) {
-          console.error("[Call] Failed to save response:", err);
-        }
-      } else {
-        console.error("[Call] No callId available to save response");
-      }
-    });
+    //   // Save response using ref (ensures we have the latest callId)
+    //   if (callIdRef.current) {
+    //     try {
+    //   await ResponseService.saveResponse({
+    //     is_ended: true,
+    //     tab_switch_count: tabSwitchCountRef.current,
+    //     tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
+    //     video_url: videoUrl,
+    //       }, callIdRef.current);
+    //       console.log("[Call] Response saved successfully");
+    //     } catch (err) {
+    //       console.error("[Call] Failed to save response:", err);
+    //     }
+    //   } else {
+    //     console.error("[Call] No callId available to save response");
+    //   }
+    // });
     
-    vapiClient.on("error", (error) => {
-      console.error("Vapi error:", error);
-      toast.error("Connection error occurred");
-      setCallState("details");
-    });
+    // vapiClient.on("error", (error) => {
+    //   console.error("Vapi error:", error);
+    //   toast.error("Connection error occurred");
+    //   setCallState("details");
+    // });
     
     return () => {
-      vapiClient.removeAllListeners();
+      if (livekitRoom) {
+        livekitRoom.disconnect();
+      }
     };
-  }, [videoStream]); // callId is accessed via ref, no need to re-register handlers
+  }, []);
 
   // Elapsed time counter + progress tracking
   useEffect(() => {
@@ -700,24 +688,24 @@ export default function VideoInterviewExperience({
     // Don't set state here - provisioning screen handles the transition
     
     try {
-      // Register call with backend
-      const registerResponse = await axios.post("/api/register-call", {
+      // Get LiveKit token
+      const response = await axios.post("/api/livekit-token", {
+        candidate_name: userName,
+        candidate_email: userEmail,
+        interview_id: interview.id,
         interviewer_id: interview.interviewer_id,
-        interviewId: interview.id,
-        email: userEmail,
-        name: userName,
         dynamic_data: {
           name: userName,
           mins: interview.time_duration || "10",
           objective: interview.objective || "",
           job_context: interview.job_context || "",
-          questions: interview.questions?.map((q) => q.question).join("\n") || "",
+          questions: interview.questions?.map((q, i) => `Question ${i + 1} (follow_up_count: ${q.follow_up_count || 0}): ${q.question}`).join(", ") || "",
         }
       });
       
-      const { call_id, access_token, dynamic_data } = registerResponse.data.registerCallResponse;
-      setCallId(call_id);
-      callIdRef.current = call_id; // Update ref for event handlers
+      const { token, roomName, livekitUrl } = response.data;
+      setCallId(roomName);
+      callIdRef.current = roomName; // Update ref for event handlers
       
       // Create response record
       const detailsObj: any = {};
@@ -750,7 +738,7 @@ export default function VideoInterviewExperience({
       
       await createResponse({
         interview_id: interview.id,
-        call_id: call_id,
+        call_id: roomName,
         email: userEmail,
         name: userName,
         details: Object.keys(detailsObj).length > 0 ? detailsObj : null,
@@ -759,45 +747,133 @@ export default function VideoInterviewExperience({
         profile_type: profileType,
       });
       
-      // Set input devices before starting call (uses selected mic/camera)
-      if (selectedAudioDevice || selectedVideoDevice) {
-        try {
-          await vapiClient.setInputDevicesAsync({
-            audioDeviceId: selectedAudioDevice || undefined,
-            videoDeviceId: selectedVideoDevice || undefined
-          });
-          console.log("[joinCall] Set input devices:", { audio: selectedAudioDevice, video: selectedVideoDevice });
-        } catch (deviceErr) {
-          console.warn("[joinCall] Failed to set input devices:", deviceErr);
-        }
-      }
+      // Connect to LiveKit room
+      const newRoom = new Room();
+      livekitRoom = newRoom;
       
-      // Start Vapi call - returns the actual call object with real ID
-      const vapiCall = await vapiClient.start(access_token, {
-        variableValues: dynamic_data
+      // Set up event handlers BEFORE connecting
+      newRoom.on(RoomEvent.Connected, () => {
+        console.log("[LiveKit] Connected to room");
+        setCallState("connected");
+        setCallStartTime(new Date());
+        startVideoRecording();
+        
+        // Re-attach video stream when call starts
+        setTimeout(() => {
+          if (videoRefConnected.current && videoStream) {
+            videoRefConnected.current.srcObject = videoStream;
+          }
+        }, 100);
+        
+        // Slide in transcript panel after a short delay
+        setTimeout(() => {
+          setShowTranscript(true);
+        }, 300);
       });
       
-      // IMPORTANT: Update DB with real Vapi call_id (different from temp call_id)
-      if (vapiCall?.id && vapiCall.id !== call_id) {
-        const realCallId = vapiCall.id;
-        console.log("[joinCall] Temp call_id:", call_id);
-        console.log("[joinCall] Real Vapi call_id:", realCallId);
+      newRoom.on(RoomEvent.Disconnected, async () => {
+        console.log("[LiveKit] Disconnected, saving response for callId:", callIdRef.current);
+        setCallState("ended");
+        setIsSpeaking(null);
         
-        try {
-          // Update the response record with real call_id
-          await ResponseService.updateResponse(
-            { call_id: realCallId },
-            call_id
-          );
-          console.log("[joinCall] ✅ Updated DB with real call ID");
-        } catch (updateError) {
-          console.error("[joinCall] ❌ Failed to update DB with real call ID:", updateError);
+        // Stop recording and upload
+        const videoUrl = await stopVideoRecording();
+        
+        // Convert transcript messages to text format using ref (not state) to avoid stale closure
+        const transcriptText = transcriptMessagesRef.current
+          .map(msg => `${msg.role === "assistant" ? interviewerName : userName}: ${msg.content}`)
+          .join("\n\n");
+        
+        console.log("[LiveKit] Formatting transcript for storage", {
+          messageCount: transcriptMessagesRef.current.length,
+          transcriptLength: transcriptText.length
+        });
+        
+        // Save response using ref
+        if (callIdRef.current) {
+          try {
+            await ResponseService.saveResponse({
+              is_ended: true,
+              tab_switch_count: tabSwitchCountRef.current,
+              tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
+              details: {
+                transcript: transcriptText, // Store in details JSONB for analytics
+                livekit_room_name: callIdRef.current, // Mark as LiveKit call
+                recorded_video_url: videoUrl, // Store video URL in details
+              },
+            }, callIdRef.current);
+            console.log("[LiveKit] Response saved successfully with transcript");
+          } catch (err) {
+            console.error("[LiveKit] Failed to save response:", err);
+          }
         }
-        
-        // Update state with real call_id
-        setCallId(realCallId);
-        callIdRef.current = realCallId;
-      }
+      });
+      
+      newRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
+        if (track.kind === Track.Kind.Audio) {
+          console.log("[LiveKit] Agent audio track subscribed");
+          const audioElement = track.attach();
+          document.body.appendChild(audioElement);
+          audioElement.play();
+        }
+      });
+      
+      // Listen for transcription segments from LiveKit's built-in transcription
+      newRoom.on(RoomEvent.TranscriptionReceived, (segments, participant, publication) => {
+        try {
+          console.log("[LiveKit] Transcription received:", segments, "from:", participant?.identity);
+          
+          segments.forEach(segment => {
+            const isFinal = segment.final;
+            const text = segment.text;
+            
+            if (!text) return;
+            
+            // Determine if this is from the agent or user
+            const isAgent = participant?.identity === 'agent' || participant?.identity?.includes('agent');
+            const role = isAgent ? "assistant" : "user";
+            
+            if (isFinal) {
+              const messageKey = `${role}-${text}`;
+              if (messageKey !== lastTranscriptRef.current) {
+                const newMessage: TranscriptMessage = {
+                  id: Date.now().toString(),
+                  role: role,
+                  content: text,
+                  timestamp: new Date()
+                };
+                setTranscriptMessages(prev => [...prev, newMessage]);
+                lastTranscriptRef.current = messageKey;
+                console.log("[LiveKit] Added final transcript:", role, text.substring(0, 50));
+              }
+              if (role === "assistant") {
+                setAssistantText("");
+                setIsSpeaking(null);
+              } else {
+                setIsSpeaking(null);
+              }
+            } else {
+              // Partial transcript
+              if (role === "assistant") {
+                setAssistantText(text);
+                setIsSpeaking("assistant");
+              } else {
+                setIsSpeaking("user");
+              }
+            }
+          });
+        } catch (error) {
+          console.error("[LiveKit] Error handling transcription:", error);
+        }
+      });
+      
+      // Connect to room
+      await newRoom.connect(livekitUrl, token);
+      console.log("[LiveKit] Connecting to room...");
+      
+      // Enable microphone only (not camera - local preview only)
+      await newRoom.localParticipant.setMicrophoneEnabled(true);
+      console.log("[LiveKit] Microphone enabled");
       
     } catch (error: any) {
       console.error("Failed to start call:", error);
@@ -808,7 +884,9 @@ export default function VideoInterviewExperience({
 
   // End call
   const endCall = () => {
-    vapiClient.stop();
+    if (livekitRoom) {
+      livekitRoom.disconnect();
+    }
   };
 
   // Shared left panel with interview info - used in Steps 1 and 2
