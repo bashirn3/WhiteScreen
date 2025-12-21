@@ -64,6 +64,81 @@ export async function POST(req: Request, res: Response) {
       );
     }
     
+    // Check if this is a LiveKit call by:
+    // 1. Call ID format (starts with "interview-" = LiveKit room name)
+    // 2. OR has LiveKit-specific fields in database
+    const isLiveKitCall = body.id.startsWith('interview-') || 
+                          callResponse?.recorded_video_url || 
+                          callResponse?.livekit_room_name;
+    
+    // For LiveKit calls, skip Vapi fetch and use transcript from DB
+    if (isLiveKitCall) {
+      logger.info(`[get-call] Detected LiveKit call ${body.id}, skipping Vapi fetch`);
+      
+      // Use transcript from database or reconstruct from messages
+      const transcript = callResponse?.transcript || "";
+      
+      if (!transcript) {
+        logger.error(`No transcript found for LiveKit call ${body.id}`);
+        return NextResponse.json(
+          { error: "No transcript available for this call" },
+          { status: 404 },
+        );
+      }
+      
+      const interviewId = callDetails?.interview_id;
+      
+      // Generate analytics from transcript
+      const payload = {
+        callId: body.id,
+        interviewId: interviewId,
+        transcript: transcript,
+      };
+      
+      const result = await generateInterviewAnalytics(payload);
+
+      if (result.error) {
+        logger.error(
+          `Failed to generate analytics for LiveKit call ${body.id}: ${result.error}`,
+        );
+        return NextResponse.json(
+          {
+            error: "Failed to generate call analytics",
+            details: result.error,
+          },
+          { status: 500 },
+        );
+      }
+
+      const analytics = result.analytics;
+
+      // Calculate duration from existing data or use stored duration
+      const duration = callDetails.duration || 0;
+
+      await ResponseService.saveResponse(
+        {
+          details: callResponse,
+          is_analysed: true,
+          duration: duration,
+          analytics: analytics,
+        },
+        body.id,
+      );
+
+      logger.info("LiveKit call analysed successfully");
+
+      return NextResponse.json(
+        {
+          callResponse,
+          analytics,
+        },
+        { status: 200 },
+      );
+    }
+    
+    // For Vapi calls, continue with original logic
+    logger.info(`[get-call] Detected Vapi call ${body.id}, fetching from Vapi API`);
+    
     // Retrieve call from Vapi with error handling
     let vapiCall;
     try {

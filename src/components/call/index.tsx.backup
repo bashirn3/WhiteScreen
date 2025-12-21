@@ -22,7 +22,7 @@ import { Input } from "../ui/input";
 import { useResponses } from "@/contexts/responses.context";
 import Image from "next/image";
 import axios from "axios";
-import { Room, RoomEvent, Track } from 'livekit-client';
+import Vapi from "@vapi-ai/web";
 import { toast } from "sonner";
 import { isLightColor, testEmail, cn } from "@/lib/utils";
 import { ResponseService } from "@/services/responses.service";
@@ -51,8 +51,7 @@ import { InterviewerService } from "@/services/interviewers.service";
 import { signIn, signOut, useSession } from 'next-auth/react';
 import ParticlesBackground from "./ParticlesBackground";
 
-// LiveKit room instance (will be created on call start)
-let room: Room | null = null;
+const vapiClient = new Vapi(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || "");
 
 // Default Alex avatar - professional AI interviewer
 const DEFAULT_INTERVIEWER_IMAGE = "/interviewers/Alex.png";
@@ -678,7 +677,6 @@ function Call({ interview }: InterviewProps) {
   const [organizationLogo, setOrganizationLogo] = useState<string | null>(null);
   const [isFeedbackSubmitted, setIsFeedbackSubmitted] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [livekitRoom, setLivekitRoom] = useState<Room | null>(null);
   
   // Practice mode
   const [isPracticing, setIsPracticing] = useState(false);
@@ -734,24 +732,103 @@ function Call({ interview }: InterviewProps) {
         setPracticeTimeLeft(prev => prev - 1);
       }, 1000);
     } else if (isPracticing && practiceTimeLeft === 0) {
-      if (livekitRoom) {
-        livekitRoom.disconnect();
-      }
+      vapiClient.stop();
     }
 
     return () => {
       if (practiceIntervalRef.current) clearInterval(practiceIntervalRef.current);
     };
-  }, [isPracticing, practiceTimeLeft, isStarted, livekitRoom]);
+  }, [isPracticing, practiceTimeLeft, isStarted]);
 
-  // LiveKit cleanup on unmount
+  // Vapi event listeners
   useEffect(() => {
-    return () => {
-      if (livekitRoom) {
-        livekitRoom.disconnect();
+    let assistantTurnText = "";
+    let userTurnText = "";
+    let lastSpeaker = "";
+
+    vapiClient.on("call-start", () => {
+      setIsCalling(true);
+      setIsConnecting(false);
+      vapiClient.setMuted(true);
+    });
+
+    const persistEnd = async () => {
+      if (hasSavedRef.current || isPracticing || !callId) return;
+      hasSavedRef.current = true;
+      
+      try {
+        await ResponseService.saveResponse({
+          is_ended: true,
+          tab_switch_count: tabSwitchCountRef.current,
+          tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
+          interview_id: interview.id,
+          email,
+          name,
+        }, callId);
+      } catch (error) {
+        console.error("Failed to persist end:", error);
       }
     };
-  }, [livekitRoom]);
+
+    vapiClient.on("call-end", () => {
+      setIsCalling(false);
+      setIsEnded(true);
+      if (practiceIntervalRef.current) clearInterval(practiceIntervalRef.current);
+      persistEnd();
+    });
+
+    vapiClient.on("speech-start", () => {
+      setActiveTurn("agent");
+    });
+
+    vapiClient.on("speech-end", () => {
+      setActiveTurn("user");
+    });
+
+    vapiClient.on("error", (error) => {
+      console.error("Vapi error:", error);
+      vapiClient.stop();
+      setIsEnded(true);
+      setIsCalling(false);
+    });
+
+    vapiClient.on("message", (message: any) => {
+      if (message.type === "transcript") {
+        const text = message.transcript || "";
+        if (!text) return;
+        
+        if (message.role === "assistant") {
+          if (message.transcriptType === "partial") {
+            if (lastSpeaker !== "assistant") {
+              assistantTurnText = "";
+              lastSpeaker = "assistant";
+            }
+            setLastInterviewerResponse(assistantTurnText ? assistantTurnText + " " + text : text);
+          }
+          if (message.transcriptType === "final") {
+            assistantTurnText += (assistantTurnText ? " " : "") + text;
+            setLastInterviewerResponse(assistantTurnText);
+          }
+        } else if (message.role === "user") {
+          if (message.transcriptType === "partial") {
+            if (lastSpeaker !== "user") {
+              userTurnText = "";
+              lastSpeaker = "user";
+            }
+            setLastUserResponse(userTurnText ? userTurnText + " " + text : text);
+          }
+          if (message.transcriptType === "final") {
+            userTurnText += (userTurnText ? " " : "") + text;
+            setLastUserResponse(userTurnText);
+          }
+        }
+      }
+    });
+
+    return () => {
+      vapiClient.removeAllListeners();
+    };
+  }, [isPracticing, callId, interview.id, email, name]);
 
   // Save response on end
   useEffect(() => {
@@ -804,101 +881,36 @@ function Call({ interview }: InterviewProps) {
         job_context: interview?.job_context || "",
       };
 
-      // Get LiveKit token
-      const response = await axios.post("/api/livekit-token", {
-        candidate_name: userName,
-        candidate_email: userEmail,
-        interview_id: interview.id,
-        interviewer_id: interview?.interviewer_id,
+      // Register call
+      const response: registerCallResponseType = await axios.post("/api/register-call", {
         dynamic_data: data,
+        interviewer_id: interview?.interviewer_id,
       });
 
-      const { token, roomName, livekitUrl } = response.data;
-      setCallId(roomName);
+      const tempCallId = response.data.registerCallResponse.call_id;
+      setCallId(tempCallId);
 
       // Create DB record
-      await createResponse({
+      const newResponseId = await createResponse({
         interview_id: interview.id,
-        call_id: roomName,
+        call_id: tempCallId,
         email: userEmail,
         name: userName,
       });
 
-      // Connect to LiveKit room
-      const newRoom = new Room();
-      setLivekitRoom(newRoom);
-
-      // Set up event handlers
-      newRoom.on(RoomEvent.Connected, () => {
-        console.log("Connected to LiveKit room");
-        setIsCalling(true);
-        setIsConnecting(false);
-        setIsStarted(true);
+      // Start Vapi call
+      const assistantId = response.data.registerCallResponse.access_token;
+      const call = await vapiClient.start(assistantId, {
+        variableValues: response.data.registerCallResponse.dynamic_data,
       });
 
-      newRoom.on(RoomEvent.Disconnected, () => {
-        console.log("Disconnected from LiveKit room");
-        setIsCalling(false);
-        setIsEnded(true);
-        if (practiceIntervalRef.current) {
-          clearInterval(practiceIntervalRef.current);
-        }
-        
-        // Save response on disconnect
-        if (!hasSavedRef.current && !isPracticing && roomName) {
-          hasSavedRef.current = true;
-          ResponseService.saveResponse({
-            is_ended: true,
-            tab_switch_count: tabSwitchCountRef.current,
-            tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
-            interview_id: interview.id,
-            email: userEmail,
-            name: userName,
-          }, roomName).catch(error => {
-            console.error("Failed to save response:", error);
-          });
-        }
-      });
-
-      newRoom.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-        if (track.kind === Track.Kind.Audio) {
-          console.log("Agent audio track subscribed");
-          const audioElement = track.attach();
-          document.body.appendChild(audioElement);
-          audioElement.play();
-        }
-      });
-
-      newRoom.on(RoomEvent.DataReceived, (payload: Uint8Array, participant) => {
-        // Handle transcription data from agent
-        try {
-          const decoder = new TextDecoder();
-          const message = JSON.parse(decoder.decode(payload));
-          
-          if (message.type === "transcript") {
-            if (message.role === "assistant") {
-              setLastInterviewerResponse(message.text || "");
-              setActiveTurn("agent");
-            } else if (message.role === "user") {
-              setLastUserResponse(message.text || "");
-              setActiveTurn("user");
-            }
-          }
-        } catch (error) {
-          console.error("Error parsing data message:", error);
-        }
-      });
-
-      // Connect to room
-      await newRoom.connect(livekitUrl, token);
-      
-      // Enable microphone (muted initially)
-      await newRoom.localParticipant.setMicrophoneEnabled(true);
-      const audioTrack = newRoom.localParticipant.getTrackPublication(Track.Source.Microphone);
-      if (audioTrack?.track) {
-        audioTrack.track.mute();
+      // Update with real call ID
+      if (call?.id) {
+        await ResponseService.updateResponse({ call_id: call.id }, tempCallId);
+        setCallId(call.id);
       }
 
+      setIsStarted(true);
     } catch (error) {
       console.error("Error joining call:", error);
       toast.error("Failed to start interview. Please try again.");
@@ -908,26 +920,14 @@ function Call({ interview }: InterviewProps) {
 
   // End call handler
   const handleEndCall = () => {
-    if (livekitRoom) {
-      livekitRoom.disconnect();
-    }
+    vapiClient.stop();
   };
 
   // Toggle mute
   const handleToggleMute = () => {
     const newState = !isMuted;
     setIsMuted(newState);
-    
-    if (livekitRoom) {
-      const audioTrack = livekitRoom.localParticipant.getTrackPublication(Track.Source.Microphone);
-      if (audioTrack?.track) {
-        if (newState) {
-          audioTrack.track.mute();
-        } else {
-          audioTrack.track.unmute();
-        }
-      }
-    }
+    vapiClient.setMuted(newState);
   };
 
   // Feedback handler
