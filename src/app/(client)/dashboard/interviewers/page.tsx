@@ -3,7 +3,6 @@
 import { useInterviewers } from "@/contexts/interviewers.context";
 import React from "react";
 import InterviewerCard from "@/components/dashboard/interviewer/interviewerCard";
-import CreateInterviewerButton from "@/components/dashboard/interviewer/createInterviewerButton";
 import { Users } from "lucide-react";
 
 function Interviewers() {
@@ -32,7 +31,6 @@ function Interviewers() {
         <p className="text-sm text-gray-500 max-w-md">
           Contact your administrator to set up AI interviewers for your organization.
         </p>
-        <CreateInterviewerButton />
       </div>
     );
   }

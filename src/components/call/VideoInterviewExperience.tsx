@@ -148,6 +148,13 @@ export default function VideoInterviewExperience({
   const recordedChunksRef = useRef<Blob[]>([]);
   const videoStreamRef = useRef<MediaStream | null>(null);
   
+  // Audio recording refs (for conversation audio: user + agent)
+  const audioRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const agentAudioTrackRef = useRef<MediaStreamTrack | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const mixedAudioStreamRef = useRef<MediaStream | null>(null);
+  
   // Tab switch tracking
   const { tabSwitchCount, tabSwitchEvents } = useTabSwitchPrevention({
     isTracking: callState === "connected"
@@ -203,6 +210,7 @@ export default function VideoInterviewExperience({
   
   // Time tracking
   const [callStartTime, setCallStartTime] = useState<Date | null>(null);
+  const callStartTimeRef = useRef<Date | null>(null); // Track for event handlers
   const [elapsedTime, setElapsedTime] = useState<string>("0:00");
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [interviewProgress, setInterviewProgress] = useState<number>(0); // Progress in minutes
@@ -231,11 +239,11 @@ export default function VideoInterviewExperience({
       })
       .then(devices => {
         if (devices) {
-        const videoInputs = devices.filter(d => d.kind === "videoinput");
-        const audioInputs = devices.filter(d => d.kind === "audioinput");
+          const videoInputs = devices.filter(d => d.kind === "videoinput");
+          const audioInputs = devices.filter(d => d.kind === "audioinput");
           console.log("[Media] Found devices - video:", videoInputs.length, "audio:", audioInputs.length);
-        setVideoDevices(videoInputs);
-        setAudioDevices(audioInputs);
+          setVideoDevices(videoInputs);
+          setAudioDevices(audioInputs);
           if (videoInputs.length > 0) setSelectedVideoDevice(videoInputs[0].deviceId);
           if (audioInputs.length > 0) setSelectedAudioDevice(audioInputs[0].deviceId);
         }
@@ -380,8 +388,7 @@ export default function VideoInterviewExperience({
       const mediaRecorder = new MediaRecorder(stream, { mimeType });
       
       mediaRecorder.ondataavailable = (event) => {
-        // Only add chunks if recording is still active (ref not cleared)
-        if (event.data.size > 0 && mediaRecorderRef.current) {
+        if (event.data.size > 0) {
           recordedChunksRef.current.push(event.data);
           console.log("[VideoRecording] Chunk recorded, size:", event.data.size);
         }
@@ -400,86 +407,202 @@ export default function VideoInterviewExperience({
   };
 
   // Stop video recording and upload
-  const stopVideoRecording = async (): Promise<string | null> => {
-    console.log("[VideoRecording] Stopping recording...");
-    console.log("[VideoRecording] MediaRecorder exists:", !!mediaRecorderRef.current);
-    console.log("[VideoRecording] Recorded chunks:", recordedChunksRef.current.length);
-    
-    const mediaRecorder = mediaRecorderRef.current;
-    
-    if (!mediaRecorder) {
+  const stopVideoRecording = async () => {
+    if (!mediaRecorderRef.current) {
       console.error("[VideoRecording] No MediaRecorder to stop");
       return null;
     }
     
-    // Clear the ref immediately to prevent any more chunks from being added
-    mediaRecorderRef.current = null;
-    
-    // Stop the recorder if it's still running
-    if (mediaRecorder.state === 'recording') {
-      console.log("[VideoRecording] Stopping MediaRecorder...");
-      mediaRecorder.stop();
-    } else if (mediaRecorder.state === 'paused') {
-      console.log("[VideoRecording] MediaRecorder was paused, stopping...");
-      mediaRecorder.stop();
-    }
-    
-    // Wait a bit for the onstop event to fire and final data to be collected
-    await new Promise(r => setTimeout(r, 300));
-    
     // Check if we have recorded data
-    const chunks = [...recordedChunksRef.current]; // Copy chunks
-    recordedChunksRef.current = []; // Clear chunks immediately
-    
-    if (chunks.length === 0) {
+    if (recordedChunksRef.current.length === 0) {
       console.error("[VideoRecording] No recorded chunks available");
       return null;
     }
     
-    console.log("[VideoRecording] Processing", chunks.length, "chunks");
-    
-    const blob = new Blob(chunks, { type: 'video/webm' });
-    console.log("[VideoRecording] Blob size:", blob.size);
-    
-    if (blob.size === 0) {
-      console.error("[VideoRecording] Empty blob, no video to upload");
-      return null;
-    }
-    
+    return new Promise<string | null>((resolve) => {
+      const mediaRecorder = mediaRecorderRef.current!;
+      
+      mediaRecorder.onstop = async () => {
+        console.log("[VideoRecording] Stopped, chunks:", recordedChunksRef.current.length);
+        
+        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        console.log("[VideoRecording] Blob size:", blob.size);
+        recordedChunksRef.current = [];
+        
+        if (blob.size === 0) {
+          console.error("[VideoRecording] Empty blob, no video to upload");
+          resolve(null);
+          return;
+        }
+        
+        try {
+          // Upload to Supabase
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          );
+          
+          // Use callIdRef to get latest callId (avoids stale closure)
+          const currentCallId = callIdRef.current || `unknown_${Date.now()}`;
+          const fileName = `${currentCallId}_${Date.now()}.webm`;
+          console.log("[VideoRecording] Uploading to:", fileName);
+          
+          const { data, error } = await supabase.storage
+            .from('videos')
+            .upload(fileName, blob, {
+              contentType: 'video/webm',
+              upsert: false
+            });
+          
+          if (error) {
+            console.error("[VideoRecording] Upload error:", error);
+            resolve(null);
+            return;
+          }
+          
+          const { data: urlData } = supabase.storage
+            .from('videos')
+            .getPublicUrl(fileName);
+          
+          console.log("[VideoRecording] Uploaded successfully:", urlData.publicUrl);
+          resolve(urlData.publicUrl);
+        } catch (err) {
+          console.error("[VideoRecording] Upload failed:", err);
+          resolve(null);
+        }
+      };
+      
+      mediaRecorder.stop();
+    });
+  };
+
+  // Start audio recording (conversation: user + agent mixed)
+  const startAudioRecording = () => {
     try {
-      // Upload to Supabase
-      const supabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      );
-      
-      // Use callIdRef to get latest callId (avoids stale closure)
-      const currentCallId = callIdRef.current || `unknown_${Date.now()}`;
-      const fileName = `${currentCallId}_${Date.now()}.webm`;
-      console.log("[VideoRecording] Uploading to videos bucket:", fileName);
-      
-      const { data, error } = await supabase.storage
-        .from('videos')
-        .upload(fileName, blob, {
-          contentType: 'video/webm',
-          upsert: true
-        });
-      
-      if (error) {
-        console.error("[VideoRecording] Upload error:", error);
-        return null;
-      }
-      
-      const { data: urlData } = supabase.storage
-        .from('videos')
-        .getPublicUrl(fileName);
-      
-      console.log("[VideoRecording] Uploaded successfully:", urlData.publicUrl);
-      return urlData.publicUrl;
+      // We'll start this when agent audio track is available
+      console.log("[AudioRecording] Waiting for agent audio track...");
     } catch (err) {
-      console.error("[VideoRecording] Upload failed:", err);
+      console.error("[AudioRecording] Failed to start:", err);
+    }
+  };
+
+  // Mix user mic + agent audio and start recording
+  const startMixedAudioRecording = (userAudioTrack: MediaStreamTrack, agentAudioTrack: MediaStreamTrack) => {
+    try {
+      console.log("[AudioRecording] Mixing user + agent audio");
+      
+      // Create audio context
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      
+      // Create sources
+      const userStream = new MediaStream([userAudioTrack]);
+      const agentStream = new MediaStream([agentAudioTrack]);
+      
+      const userSource = audioContext.createMediaStreamSource(userStream);
+      const agentSource = audioContext.createMediaStreamSource(agentStream);
+      
+      // Create destination to mix both
+      const destination = audioContext.createMediaStreamDestination();
+      
+      // Connect both sources to destination
+      userSource.connect(destination);
+      agentSource.connect(destination);
+      
+      // Store mixed stream
+      mixedAudioStreamRef.current = destination.stream;
+      
+      // Start recording the mixed audio
+      const mimeType = 'audio/webm';
+      const audioRecorder = new MediaRecorder(destination.stream, { mimeType });
+      
+      audioRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      
+      audioRecorder.start(1000); // Collect data every second
+      audioRecorderRef.current = audioRecorder;
+      console.log("[AudioRecording] Started recording mixed audio");
+    } catch (err) {
+      console.error("[AudioRecording] Failed to mix audio:", err);
+    }
+  };
+
+  // Stop audio recording and upload
+  const stopAudioRecording = async () => {
+    if (!audioRecorderRef.current) {
+      console.log("[AudioRecording] No audio recorder to stop");
       return null;
     }
+    
+    if (audioChunksRef.current.length === 0) {
+      console.log("[AudioRecording] No audio chunks recorded");
+      return null;
+    }
+    
+    return new Promise<string | null>((resolve) => {
+      const audioRecorder = audioRecorderRef.current!;
+      
+      audioRecorder.onstop = async () => {
+        console.log("[AudioRecording] Stopped, chunks:", audioChunksRef.current.length);
+        
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        console.log("[AudioRecording] Blob size:", blob.size);
+        audioChunksRef.current = [];
+        
+        if (blob.size === 0) {
+          console.error("[AudioRecording] Empty blob");
+          resolve(null);
+          return;
+        }
+        
+        try {
+          // Upload to Supabase recordings bucket
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          );
+          
+          const currentCallId = callIdRef.current || `unknown_${Date.now()}`;
+          const fileName = `${currentCallId}.webm`;
+          console.log("[AudioRecording] Uploading to:", fileName);
+          
+          const { data, error } = await supabase.storage
+            .from('recordings')
+            .upload(fileName, blob, {
+              contentType: 'audio/webm',
+              upsert: true
+            });
+          
+          if (error) {
+            console.error("[AudioRecording] Upload error:", error);
+            resolve(null);
+            return;
+          }
+          
+          const { data: urlData } = supabase.storage
+            .from('recordings')
+            .getPublicUrl(fileName);
+          
+          console.log("[AudioRecording] Uploaded successfully:", urlData.publicUrl);
+          
+          // Cleanup audio context
+          if (audioContextRef.current) {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+          }
+          
+          resolve(urlData.publicUrl);
+        } catch (err) {
+          console.error("[AudioRecording] Upload failed:", err);
+          resolve(null);
+        }
+      };
+      
+      audioRecorder.stop();
+    });
   };
 
   // CV Upload handler
@@ -527,100 +650,6 @@ export default function VideoInterviewExperience({
   
   // LiveKit cleanup on unmount
   useEffect(() => {
-    // // Speaking events
-    // vapiClient.on("speech-start", () => {
-    //   setIsSpeaking("assistant");
-    // });
-    
-    // vapiClient.on("speech-end", () => {
-    //   setIsSpeaking(null);
-    // });
-    
-    // // Transcript events
-    // vapiClient.on("message", (message: any) => {
-    //   if (message.type === "transcript") {
-    //     if (message.transcriptType === "partial") {
-    //       if (message.role === "assistant") {
-    //         setAssistantText(message.transcript);
-    //       } else {
-    //         setIsSpeaking("user");
-    //       }
-    //     } else if (message.transcriptType === "final") {
-    //       // Prevent duplicate messages
-    //       const messageKey = `${message.role}-${message.transcript}`;
-    //       if (lastTranscriptRef.current === messageKey) {
-    //         return;
-    //       }
-    //       lastTranscriptRef.current = messageKey;
-          
-    //       const newMessage: TranscriptMessage = {
-    //         id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    //         role: message.role === "assistant" ? "assistant" : "user",
-    //         content: message.transcript,
-    //         timestamp: new Date()
-    //       };
-          
-    //       setTranscriptMessages(prev => [...prev, newMessage]);
-    //       setAssistantText("");
-          
-    //       if (message.role === "user") {
-    //         setIsSpeaking(null);
-    //       }
-    //     }
-    //   }
-    // });
-    
-    // // Call events
-    // vapiClient.on("call-start", () => {
-    //   setCallState("connected");
-    //   setCallStartTime(new Date());
-    //   startVideoRecording();
-      
-    //   // Re-attach video stream when call starts
-    //   setTimeout(() => {
-    //     if (videoRefConnected.current && videoStream) {
-    //       videoRefConnected.current.srcObject = videoStream;
-    //     }
-    //   }, 100);
-      
-    //   // Slide in transcript panel after a short delay
-    //   setTimeout(() => {
-    //     setShowTranscript(true);
-    //   }, 300);
-    // });
-    
-    // vapiClient.on("call-end", async () => {
-    //   console.log("[Call] Call ended, saving response for callId:", callIdRef.current);
-    //   setCallState("ended");
-    //   setIsSpeaking(null);
-      
-    //   // Stop recording and upload
-    //   const videoUrl = await stopVideoRecording();
-      
-    //   // Save response using ref (ensures we have the latest callId)
-    //   if (callIdRef.current) {
-    //     try {
-    //   await ResponseService.saveResponse({
-    //     is_ended: true,
-    //     tab_switch_count: tabSwitchCountRef.current,
-    //     tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
-    //     video_url: videoUrl,
-    //       }, callIdRef.current);
-    //       console.log("[Call] Response saved successfully");
-    //     } catch (err) {
-    //       console.error("[Call] Failed to save response:", err);
-    //     }
-    //   } else {
-    //     console.error("[Call] No callId available to save response");
-    //   }
-    // });
-    
-    // vapiClient.on("error", (error) => {
-    //   console.error("Vapi error:", error);
-    //   toast.error("Connection error occurred");
-    //   setCallState("details");
-    // });
-    
     return () => {
       if (livekitRoom) {
         livekitRoom.disconnect();
@@ -755,7 +784,9 @@ export default function VideoInterviewExperience({
       newRoom.on(RoomEvent.Connected, () => {
         console.log("[LiveKit] Connected to room");
         setCallState("connected");
-        setCallStartTime(new Date());
+        const now = new Date();
+        setCallStartTime(now);
+        callStartTimeRef.current = now; // Keep ref in sync for event handlers
         startVideoRecording();
         
         // Re-attach video stream when call starts
@@ -776,8 +807,14 @@ export default function VideoInterviewExperience({
         setCallState("ended");
         setIsSpeaking(null);
         
-        // Stop recording and upload
+        // Calculate call duration in seconds
+        const duration = callStartTimeRef.current 
+          ? Math.round((Date.now() - callStartTimeRef.current.getTime()) / 1000) 
+          : 0;
+        
+        // Stop recordings and upload
         const videoUrl = await stopVideoRecording();
+        const audioUrl = await stopAudioRecording();
         
         // Convert transcript messages to text format using ref (not state) to avoid stale closure
         const transcriptText = transcriptMessagesRef.current
@@ -786,7 +823,10 @@ export default function VideoInterviewExperience({
         
         console.log("[LiveKit] Formatting transcript for storage", {
           messageCount: transcriptMessagesRef.current.length,
-          transcriptLength: transcriptText.length
+          transcriptLength: transcriptText.length,
+          duration: duration,
+          hasVideo: !!videoUrl,
+          hasAudio: !!audioUrl
         });
         
         // Save response using ref
@@ -794,12 +834,14 @@ export default function VideoInterviewExperience({
           try {
             await ResponseService.saveResponse({
               is_ended: true,
+              duration: duration, // Save call duration
+              video_url: videoUrl, // User camera video (top-level column)
               tab_switch_count: tabSwitchCountRef.current,
               tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
               details: {
                 transcript: transcriptText, // Store in details JSONB for analytics
                 livekit_room_name: callIdRef.current, // Mark as LiveKit call
-                recorded_video_url: videoUrl, // Store video URL in details
+                recording_url: audioUrl, // Conversation audio (agent + user)
               },
             }, callIdRef.current);
             console.log("[LiveKit] Response saved successfully with transcript");
@@ -815,6 +857,18 @@ export default function VideoInterviewExperience({
           const audioElement = track.attach();
           document.body.appendChild(audioElement);
           audioElement.play();
+          
+          // Store agent audio track for mixing
+          agentAudioTrackRef.current = track.mediaStreamTrack;
+          
+          // Start mixed audio recording if we have both user and agent audio
+          if (videoStream) {
+            const userAudioTrack = videoStream.getAudioTracks()[0];
+            if (userAudioTrack && agentAudioTrackRef.current) {
+              console.log("[AudioRecording] Starting mixed recording (user + agent)");
+              startMixedAudioRecording(userAudioTrack, agentAudioTrackRef.current);
+            }
+          }
         }
       });
       
@@ -1732,24 +1786,24 @@ export default function VideoInterviewExperience({
           </div>
           
           <div className="h-14 flex items-center justify-between px-4">
-          <div className="flex items-center gap-2 text-white text-xs">
-            <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-            <span className="text-gray-500">|</span>
-            <span className="truncate max-w-[150px]">{interview.name}</span>
+            <div className="flex items-center gap-2 text-white text-xs">
+              <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+              <span className="text-gray-500">|</span>
+              <span className="truncate max-w-[150px]">{interview.name}</span>
               <span className="text-gray-500">({elapsedTime} / {interview.time_duration || 10}min)</span>
-          </div>
-          
+            </div>
+            
             <div className="flex items-center gap-1">
               {/* Mic button with dropdown */}
               <div className="relative flex items-center">
-            <button
-              onClick={toggleMute}
+                <button
+                  onClick={toggleMute}
                   className={`p-2.5 rounded-l-full transition-colors ${
-                isMuted ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
-              }`}
-            >
-              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-            </button>
+                    isMuted ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+                </button>
                 <button
                   onClick={() => setShowDeviceDropdown(showDeviceDropdown === "audio" ? null : "audio")}
                   className={`p-2.5 rounded-r-full border-l border-white/20 transition-colors ${
@@ -1782,14 +1836,14 @@ export default function VideoInterviewExperience({
               
               {/* Camera button with dropdown */}
               <div className="relative flex items-center ml-1">
-            <button
-              onClick={toggleVideo}
+                <button
+                  onClick={toggleVideo}
                   className={`p-2.5 rounded-l-full transition-colors ${
-                !isVideoOn ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
-              }`}
-            >
-              {isVideoOn ? <Video size={18} /> : <VideoOff size={18} />}
-            </button>
+                    !isVideoOn ? "bg-red-500 text-white" : "bg-white/10 text-white hover:bg-white/20"
+                  }`}
+                >
+                  {isVideoOn ? <Video size={18} /> : <VideoOff size={18} />}
+                </button>
                 <button
                   onClick={() => setShowDeviceDropdown(showDeviceDropdown === "video" ? null : "video")}
                   className={`p-2.5 rounded-r-full border-l border-white/20 transition-colors ${
@@ -1819,22 +1873,22 @@ export default function VideoInterviewExperience({
                   </div>
                 )}
               </div>
-            
-            <button
-              onClick={endCall}
+              
+              <button
+                onClick={endCall}
                 className="px-4 py-2.5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-colors ml-2"
-            >
-              <PhoneOff size={18} />
-            </button>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setShowTranscript(!showTranscript)}
+              >
+                <PhoneOff size={18} />
+              </button>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowTranscript(!showTranscript)}
                 className={`p-2.5 rounded-full transition-colors ${showTranscript ? "bg-purple-500 text-white" : "bg-white/10 text-white hover:bg-white/20"}`}
-            >
-              <MessageSquare size={18} />
-            </button>
+              >
+                <MessageSquare size={18} />
+              </button>
             </div>
           </div>
         </div>
