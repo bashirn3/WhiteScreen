@@ -4,6 +4,7 @@ import { ResponseService } from "@/services/responses.service";
 import { Response } from "@/types/response";
 import { NextResponse } from "next/server";
 import { VapiClient } from "@vapi-ai/server-sdk";
+import { createClient } from "@supabase/supabase-js";
 
 const vapiClient = new VapiClient({
   token: process.env.VAPI_API_KEY || "",
@@ -75,7 +76,43 @@ export async function POST(req: Request, res: Response) {
     if (isLiveKitCall) {
       logger.info(`[get-call] Detected LiveKit call ${body.id}, skipping Vapi fetch`);
       
-      // Use transcript from database or reconstruct from messages
+      // Auto-recover: if details is null/empty, check storage for orphaned recording
+      if (!callResponse || (!callResponse.transcript && !callResponse.recording_url)) {
+        logger.info(`[get-call] Attempting auto-recovery for ${body.id}`);
+        try {
+          const supabase = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+          );
+          const fileName = `${body.id}.webm`;
+          const { data: fileCheck } = await supabase.storage
+            .from('recordings')
+            .list('', { search: fileName, limit: 1 });
+          
+          if (fileCheck && fileCheck.length > 0) {
+            const { data: urlData } = supabase.storage
+              .from('recordings')
+              .getPublicUrl(fileName);
+            
+            logger.info(`[get-call] Found orphaned recording in storage: ${urlData.publicUrl}`);
+            callResponse = {
+              ...(callResponse || {}),
+              livekit_room_name: body.id,
+              recording_url: urlData.publicUrl,
+              transcript: callResponse?.transcript || "",
+            };
+            
+            await ResponseService.saveResponse(
+              { details: callResponse },
+              body.id,
+            );
+            logger.info(`[get-call] Auto-recovered recording URL for ${body.id}`);
+          }
+        } catch (recoveryErr) {
+          logger.error(`[get-call] Auto-recovery failed for ${body.id}:`, recoveryErr);
+        }
+      }
+      
       const transcript = callResponse?.transcript || "";
       
       if (!transcript) {

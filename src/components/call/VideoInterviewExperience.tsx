@@ -687,14 +687,26 @@ export default function VideoInterviewExperience({
           const currentTabSwitchCount = tabSwitchCountRef.current;
           const currentTabSwitchEvents = tabSwitchEventsRef.current;
           
+          const transcriptText = transcriptMessagesRef.current
+            .map(msg => `${msg.role === "assistant" ? interviewerName : userName}: ${msg.content}`)
+            .join("\n\n");
+
+          const duration = callStartTimeRef.current 
+            ? Math.round((Date.now() - callStartTimeRef.current.getTime()) / 1000) 
+            : 0;
+
           await ResponseService.saveResponse({
             is_ended: true,
+            duration: duration,
             tab_switch_count: currentTabSwitchCount,
             tab_switch_events: currentTabSwitchEvents.length > 0 ? currentTabSwitchEvents : null,
-            // Include primary identifiers as backup
             interview_id: interview.id,
             email: userEmail,
             name: userName,
+            details: {
+              transcript: transcriptText,
+              livekit_room_name: callId,
+            },
           }, callId);
           
           console.log("[Backup Save] Response saved successfully for callId:", callId);
@@ -705,7 +717,7 @@ export default function VideoInterviewExperience({
       
       saveEndedResponse();
     }
-  }, [callState, callId, interview.id, userEmail, userName]);
+  }, [callState, callId, interview.id, userEmail, userName, interviewerName]);
 
   // Join call
   const joinCall = async () => {
@@ -807,46 +819,63 @@ export default function VideoInterviewExperience({
         setCallState("ended");
         setIsSpeaking(null);
         
-        // Calculate call duration in seconds
         const duration = callStartTimeRef.current 
           ? Math.round((Date.now() - callStartTimeRef.current.getTime()) / 1000) 
           : 0;
         
-        // Stop recordings and upload
-        const videoUrl = await stopVideoRecording();
-        const audioUrl = await stopAudioRecording();
-        
-        // Convert transcript messages to text format using ref (not state) to avoid stale closure
         const transcriptText = transcriptMessagesRef.current
           .map(msg => `${msg.role === "assistant" ? interviewerName : userName}: ${msg.content}`)
           .join("\n\n");
         
-        console.log("[LiveKit] Formatting transcript for storage", {
-          messageCount: transcriptMessagesRef.current.length,
-          transcriptLength: transcriptText.length,
-          duration: duration,
-          hasVideo: !!videoUrl,
-          hasAudio: !!audioUrl
-        });
-        
-        // Save response using ref
+        // Save core data FIRST — transcript, duration, metadata — before attempting recordings
         if (callIdRef.current) {
           try {
             await ResponseService.saveResponse({
               is_ended: true,
-              duration: duration, // Save call duration
-              video_url: videoUrl, // User camera video (top-level column)
+              duration: duration,
               tab_switch_count: tabSwitchCountRef.current,
               tab_switch_events: tabSwitchEventsRef.current.length > 0 ? tabSwitchEventsRef.current : null,
               details: {
-                transcript: transcriptText, // Store in details JSONB for analytics
-                livekit_room_name: callIdRef.current, // Mark as LiveKit call
-                recording_url: audioUrl, // Conversation audio (agent + user)
+                transcript: transcriptText,
+                livekit_room_name: callIdRef.current,
               },
             }, callIdRef.current);
-            console.log("[LiveKit] Response saved successfully with transcript");
+            console.log("[LiveKit] Core response saved successfully");
           } catch (err) {
-            console.error("[LiveKit] Failed to save response:", err);
+            console.error("[LiveKit] Failed to save core response:", err);
+          }
+        }
+
+        // Now attempt recordings — failures here won't lose transcript/duration
+        let videoUrl: string | null = null;
+        let audioUrl: string | null = null;
+        
+        try {
+          videoUrl = await stopVideoRecording();
+        } catch (err) {
+          console.error("[LiveKit] Failed to stop video recording:", err);
+        }
+        
+        try {
+          audioUrl = await stopAudioRecording();
+        } catch (err) {
+          console.error("[LiveKit] Failed to stop audio recording:", err);
+        }
+
+        // Update response with recording URLs if we got them
+        if (callIdRef.current && (videoUrl || audioUrl)) {
+          try {
+            await ResponseService.saveResponse({
+              ...(videoUrl ? { video_url: videoUrl } : {}),
+              details: {
+                transcript: transcriptText,
+                livekit_room_name: callIdRef.current,
+                ...(audioUrl ? { recording_url: audioUrl } : {}),
+              },
+            }, callIdRef.current);
+            console.log("[LiveKit] Recording URLs saved successfully");
+          } catch (err) {
+            console.error("[LiveKit] Failed to save recording URLs:", err);
           }
         }
       });
